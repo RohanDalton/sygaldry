@@ -1,5 +1,7 @@
 """It's Sygaldry"""
 
+from sygaldry.artificery import Artificery
+
 __author__ = "Rohan B. Dalton"
 
 

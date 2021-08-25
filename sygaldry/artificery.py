@@ -18,7 +18,7 @@ Files = Union[File, List[File]]
 # TODO: Environment variables
 # TODO: Support .ini and .yaml
 # TODO: Return an object from a YAML file.
-# TODO: Return a function from a YAML file.git 
+# TODO: Return a function from a YAML file.
 # TODO: Return a variable from a YAML file? Also, what is an enum?
 # TODO: Be able to return an instance of a type.
 # TODO: Be able to pass multiple files into constructor

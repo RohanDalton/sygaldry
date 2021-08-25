@@ -6,6 +6,7 @@ __author__ = "Rohan"
 def test_single_env():
     first = Environment()
     second = Environment()
+    assert first is not None
     assert first is second
 
 

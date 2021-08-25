@@ -1,3 +1,5 @@
+"""It's Sygaldry"""
+
 __author__ = "Rohan B. Dalton"
 
 

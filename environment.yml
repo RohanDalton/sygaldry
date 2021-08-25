@@ -1,0 +1,13 @@
+name: sygaldry
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - black
+  - flake8
+  - isort
+  - jinja
+  - mypy
+  - pytest
+  - pytest-cov
+  - pyyaml

@@ -1,147 +1,102 @@
-import builtins
-import importlib
-import io
-from pathlib import Path
-from typing import Any, List, Optional, Union
+"""
+Artificery factory conveniences.
+"""
 
-import yaml
-from jinja2 import Template
-
-from sygaldry.environment import Environment
+from __future__ import annotations
 
 __author__ = "Rohan B. Dalton"
 
-File = Union[str, Path]
-Files = Union[File, List[File]]
+from pathlib import Path
+from typing import Any, Dict, Optional
 
-# TODO: Jinja Templating
-# TODO: Environment variables
-# TODO: Support .ini and .yaml
-# TODO: Return an object from a YAML file.
-# TODO: Return a function from a YAML file.
-# TODO: Return a variable from a YAML file? Also, what is an enum?
-# TODO: Be able to return an instance of a type.
-# TODO: Be able to pass multiple files into constructor
-# TODO: Be able to pass overrides into constructor
-# TODO: Be able to call objects from the command line?
-# TODO: Have files be able to include another file.
-# TODO: Need to be able to handle includes in a recursive and unique fashion. Order?
-# TODO: Write custom YAML parser, or extension. Allow default module.
-# TODO: Support arg only arguments
-
-_module_ = "::module"
-_type_ = "::type"
-_value_ = "::value"
+from .cache import Instances
+from .loader import load_config
+from .resolver import resolve_config
 
 
-def _list_of_files(file_or_files) -> List[File]:
-    if isinstance(file_or_files, (str, Path)):
-        return [file_or_files]
-    elif file_or_files is None:
-        return list()
-    else:
-        return list(reversed(file_or_files))
-
-
-class Artificery(object):
+def load_config_file(path: str | Path) -> Dict[str, Any]:
     """
-    An :py:class:`~sygaldry.artificery.Artificery` is an an object factory.
+    Load a config file without resolving components.
 
+    :param path: Path to a YAML or TOML config file.
+    :type path: str | pathlib.Path
+    :returns: Parsed and interpolated mapping.
+    """
+    file_path = Path(path)
+    return load_config(file_path)
+
+
+class ArtificeryLoader:
+    """
+    Lightweight loader wrapper for config files.
     """
 
-    def __init__(self, file_path: File, *, additional_files: Optional[Files] = None, env: Union[bool, File] = False):
+    def __init__(self, path: str | Path) -> None:
         """
+        Initialize the loader.
 
-        :param file_path:
-        :param additional_files:
-        :param env:
+        :param path: Path to a YAML or TOML config file.
+        :type path: str | pathlib.Path
         """
+        self._path = Path(path)
 
-        raw = self._parse_to_string(file_path=file_path, additional_files=additional_files)
+    def load(self) -> Dict[str, Any]:
+        """
+        Load and return the config mapping.
+        """
+        return load_config(self._path)
 
-        environment = Environment()
-        parsed = self._render(raw, environment)
-        config = yaml.load(parsed, Loader=yaml.SafeLoader)
+
+class Artificery:
+    """
+    Component factory that resolves a config into objects.
+    """
+
+    def __init__(
+        self,
+        file_path: str | Path | None = None,
+        *,
+        config: Optional[Dict[str, Any]] = None,
+        cache: Optional[Instances] = None,
+        transient: bool = False,
+    ) -> None:
+        """
+        Initialize an Artificery instance.
+
+        :param file_path: Path to a config file.
+        :param config: Pre-loaded config mapping.
+        :param cache: Optional instance cache.
+        :param transient: If True, bypass caching.
+        :type file_path: str | pathlib.Path | None
+        :type config: dict | None
+        :type cache: Instances | None
+        :type transient: bool
+        :raises ValueError: If no config source is provided.
+        """
+        if file_path is None and config is None:
+            raise ValueError("Artificery requires file_path or config.")
+        self._file_path = Path(file_path) if file_path is not None else None
         self._config = config
+        self._cache = cache or Instances()
+        self._transient = transient
 
-    def create(self, key: str) -> Any:
+    def resolve(self) -> Dict[str, Any]:
         """
-        Creates the object specified by the supplied key.
+        Resolve the configured mapping to an object graph.
 
-        :param key: The key from the supplied config files that corresponds to the object you want to create.
-        :type key: str
-        :return:
+        :returns: Resolved configuration mapping.
+        :raises ValueError: If no config source is available.
         """
-
-        config = self._config[key]
-        if "class_name" in config:
-            return self._create_object(config)
-        else:
-            raise RuntimeError
-
-    @classmethod
-    def _create_object(cls, config: dict) -> Any:
-        module_name = config.pop("module")
-        module = importlib.import_module(module_name)
-        class_name = config.pop("class_name")
-        klass = getattr(module, class_name)
-
-        kwargs = dict()
-        for key, value in config.items():
-            if isinstance(value, str):
-                if hasattr(builtins, value):
-                    kwargs[key] = getattr(builtins, value)
-                else:
-                    kwargs[key] = value
-            elif isinstance(value, list):
-                value = [cls._create_object(v) for v in value]
-                kwargs[key] = value
-            elif isinstance(value, dict):
-                if "module" in value:
-                    kwargs[key] = cls._create_object(value)
-                elif _type_ in value:
-                    module = value.get(_module_, builtins)
-                    parser = getattr(module, value[_type_])
-                    parsed = parser(value[_value_])
-                    kwargs[key] = parsed
-                else:
-                    kwargs[key] = value
-            else:
-                kwargs[key] = value
-
-        obj = klass(**kwargs)
-        return obj
-
-    @staticmethod
-    def _parse_to_string(file_path: File, additional_files: Optional[Files]) -> str:
-        """
-        Parse the config file, and any additional config files, into a buffer.
-        :param file_path:
-        :param additional_files:
-        :return:
-        """
-        buffer = io.StringIO()
-        file_paths = _list_of_files(additional_files)
-        file_paths.append(file_path)
-        for file_path in file_paths:
-            with open(file_path, "r") as fh:
-                buffer.write(fh.read())
-
-        buffer.seek(0)
-        return buffer.read()
-
-    @staticmethod
-    def _render(raw: str, environment) -> str:
-        """
-        Render the raw template string.
-
-        :param raw:
-        :param environment:
-        :return:
-        """
-        template = Template(raw)
-        rendered = template.render(**environment)
-        return rendered
+        if self._config is None:
+            if self._file_path is None:
+                raise ValueError("Artificery has no config source.")
+            self._config = load_config(self._file_path)
+        return resolve_config(
+            self._config,
+            file_path=str(self._file_path) if self._file_path is not None else None,
+            cache=self._cache,
+            transient=self._transient,
+        )
 
 
 if __name__ == "__main__":

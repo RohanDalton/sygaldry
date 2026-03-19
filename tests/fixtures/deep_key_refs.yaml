@@ -1,0 +1,35 @@
+leaf_a:
+  _type: "tests.test_deep_key_refs.Leaf"
+  _instance: "a"
+  value: 1
+
+leaf_b:
+  _type: "tests.test_deep_key_refs.Leaf"
+  _instance: "b"
+  value: 2
+
+label_alpha: "alpha"
+label_beta: "beta"
+
+labels:
+  _entries:
+    - _key: { _ref: "label_alpha" }
+      _value: 1
+    - _key: { _ref: "label_beta" }
+      _value: 2
+
+leaves:
+  _entries:
+    - _key: { _ref: "label_alpha" }
+      _value: { _ref: "leaf_a" }
+    - _key: { _ref: "label_beta" }
+      _value: { _ref: "leaf_b" }
+
+branch:
+  _type: "tests.test_deep_key_refs.Branch"
+  labels: { _ref: "labels" }
+  leaves: { _ref: "leaves" }
+
+root:
+  _type: "tests.test_deep_key_refs.Root"
+  primary: { _ref: "branch" }

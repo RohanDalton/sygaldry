@@ -1,6 +1,6 @@
 [build-system]
-requires = ["flit_core >=3.2,<4"]
-build-backend = "flit_core.buildapi"
+build-backend = "hatchling.build"
+requires = ["hatchling"]
 
 [project]
 name = "sygaldry"
@@ -12,14 +12,40 @@ dynamic = ["version", "description"]
 [project.urls]
 Home = "https://github.com/RohanDalton/sygaldry"
 
-[tool.black]
-line-length = 119
-target-version = ["py38"]
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+conda-pypi-map = { conda-forge = "conda_pypi_map.json" }
 
-[tool.isort]
-ensure_newline_before_comments = true
-force_grid_wrap = 0
-include_trailing_comma = true
-line_length = 119
-multi_line_output = 3
-use_parentheses = true
+[tool.pixi.tasks]
+
+[tool.pixi.dependencies]
+pyyaml = ">=6.0.3,<7"
+
+[tool.pixi.feature.test.dependencies]
+pytest = "*"
+pytest-sugar = "*"
+pytest-cov = "*"
+
+[tool.pixi.feature.lint.dependencies]
+ruff = "*"
+ty = "*"
+
+[tool.pixi.feature.docs.dependencies]
+sphinx = "*"
+
+[tool.pixi.environments]
+dev = ["test", "lint", "docs"]
+
+[tool.ruff]
+line-length = 95
+indent-width = 4
+target-version = "py310"
+
+[tool.ruff.format]
+indent-style = "space"
+quote-style = "double"
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint]
+select = ["B", "C4", "FURB", "I", "PERF", "PL", "S", "SIM", "UP"]

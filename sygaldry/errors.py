@@ -1,7 +1,3 @@
-"""
-Sygaldry exception hierarchy.
-"""
-
 from __future__ import annotations
 
 __author__ = "Rohan B. Dalton"
@@ -10,7 +6,8 @@ from typing import Optional
 
 
 class SygaldryError(Exception):
-    """Base error for all Sygaldry failures.
+    """
+    Base error for all Sygaldry failures.
 
     :param message: Human-readable error message.
     :param file_path: Source config file path, if known.
@@ -34,8 +31,11 @@ class SygaldryError(Exception):
     def __str__(self) -> str:
         """
         Render the error with optional file/config context.
+
+        :returns: Formatted error string with file and config path context.
+        :rtype: str
         """
-        parts = []
+        parts = list()
         if self._file_path:
             parts.append(f"file='{self._file_path}'")
         if self._config_path:
@@ -120,6 +120,12 @@ class ConstructorError(ResolutionError):
 class ConfigConflictError(SygaldryError):
     """
     Cache conflicts for identical keys with differing specs.
+    """
+
+
+class CLIError(SygaldryError):
+    """
+    Errors originating from CLI argument processing.
     """
 
 

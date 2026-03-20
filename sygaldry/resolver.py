@@ -1,7 +1,3 @@
-"""
-Config resolver for component instantiation.
-"""
-
 from __future__ import annotations
 
 __author__ = "Rohan B. Dalton"
@@ -9,7 +5,7 @@ __author__ = "Rohan B. Dalton"
 import inspect
 import warnings
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Iterable, Optional
 
 from .cache import Instances
 from .errors import (
@@ -39,8 +35,8 @@ class ConstructorSpec:
     """
 
     target: str
-    args: Tuple[Any, ...]
-    kwargs: Dict[str, Any]
+    args: tuple[Any, ...]
+    kwargs: dict[str, Any]
     instance: Optional[str]
 
 
@@ -51,28 +47,30 @@ class Node:
     """
 
     name: str
-    children: Tuple[str, ...]
-    bindings: Dict[str, Any]
+    children: tuple[str, ...]
+    bindings: dict[str, Any]
 
 
 def resolve_config(
-    config: Dict[str, Any],
+    config: dict[str, Any],
     *,
     file_path: Optional[str] = None,
     cache: Optional[Instances] = None,
     transient: bool = False,
-) -> Dict[str, Any]:
-    """Resolve a config mapping into an instantiated object graph.
+) -> dict[str, Any]:
+    """
+    Resolve a config mapping into an instantiated object graph.
 
     :param config: Configuration mapping.
     :param file_path: Source config path for context.
     :param cache: Optional instance cache.
     :param transient: If True, bypass caching.
-    :type config: dict
+    :type config: dict[str, Any]
     :type file_path: str | None
     :type cache: Instances | None
     :type transient: bool
     :returns: Resolved configuration mapping.
+    :rtype: dict[str, Any]
     """
     resolver = _Resolver(config, file_path=file_path, cache=cache, transient=transient)
     return resolver.resolve()
@@ -85,19 +83,20 @@ class _Resolver:
 
     def __init__(
         self,
-        config: Dict[str, Any],
+        config: dict[str, Any],
         *,
         file_path: Optional[str],
         cache: Optional[Instances],
         transient: bool,
     ) -> None:
-        """Initialize the resolver.
+        """
+        Initialize the resolver.
 
         :param config: Configuration mapping.
         :param file_path: Source config path for context.
         :param cache: Optional instance cache.
         :param transient: If True, bypass caching.
-        :type config: dict
+        :type config: dict[str, Any]
         :type file_path: str | None
         :type cache: Instances | None
         :type transient: bool
@@ -106,19 +105,23 @@ class _Resolver:
         self._file_path = file_path
         self._cache = cache or Instances()
         self._transient = transient
-        self._resolved_top: Dict[str, Any] = {}
-        self._resolving_top: List[str] = []
+        self._resolved_top: dict[str, Any] = dict()
+        self._resolving_top: list[str] = list()
 
-    def resolve(self) -> Dict[str, Any]:
+    def resolve(self) -> dict[str, Any]:
         """
         Validate and resolve the full config mapping.
+
+        :returns: Resolved configuration mapping.
+        :rtype: dict[str, Any]
         """
         self._validate_schema(self._config, path=[])
         self._validate_refs(self._config)
         return self._resolve_value(self._config, path=[])
 
-    def _validate_schema(self, value: Any, *, path: List[str]) -> None:
-        """Validate schema rules for reserved keys.
+    def _validate_schema(self, value: Any, *, path: list[str]) -> None:
+        """
+        Validate schema rules for reserved keys.
 
         :param value: Value to validate.
         :param path: Dotted path context.
@@ -155,8 +158,9 @@ class _Resolver:
             for idx, child in enumerate(value):
                 self._validate_schema(child, path=path + [str(idx)])
 
-    def _validate_refs(self, config: Dict[str, Any]) -> None:
-        """Validate that all _ref targets exist in the config tree.
+    def _validate_refs(self, config: dict[str, Any]) -> None:
+        """
+        Validate that all _ref targets exist in the config tree.
 
         For plain config paths (no ``_type`` at intermediate levels),
         validates the full dotted path through the raw config dicts.
@@ -164,7 +168,7 @@ class _Resolver:
         may be attribute accesses on constructed objects.
 
         :param config: Configuration mapping.
-        :type config: dict
+        :type config: dict[str, Any]
         :raises ConfigReferenceError: If any target is missing.
         """
         for ref_path, ref_key in _collect_refs(config):
@@ -193,14 +197,16 @@ class _Resolver:
                 current = current[segment]
                 checked = f"{checked}.{segment}"
 
-    def _resolve_value(self, value: Any, *, path: List[str]) -> Any:
-        """Resolve any value recursively.
+    def _resolve_value(self, value: Any, *, path: list[str]) -> Any:
+        """
+        Resolve any value recursively.
 
         :param value: Value to resolve.
         :param path: Dotted path context.
         :type value: object
         :type path: list[str]
         :returns: Resolved value.
+        :rtype: object
         """
         if isinstance(value, dict):
             return self._resolve_dict(value, path=path)
@@ -216,14 +222,16 @@ class _Resolver:
             )
         return value
 
-    def _resolve_dict(self, value: Dict[str, Any], *, path: List[str]) -> Any:
-        """Resolve a dict, applying reserved-key rules.
+    def _resolve_dict(self, value: dict[str, Any], *, path: list[str]) -> Any:
+        """
+        Resolve a dict, applying reserved-key rules.
 
         :param value: Mapping to resolve.
         :param path: Dotted path context.
-        :type value: dict
+        :type value: dict[str, Any]
         :type path: list[str]
         :returns: Resolved mapping or constructed object.
+        :rtype: object
         """
         if "_ref" in value:
             return self._resolve_ref(value["_ref"], path)
@@ -236,19 +244,21 @@ class _Resolver:
         if "_entries" in value:
             return self._resolve_entries(value, path)
 
-        resolved: Dict[str, Any] = {}
+        resolved: dict[str, Any] = dict()
         for key, child in value.items():
             resolved[key] = self._resolve_value(child, path=path + [str(key)])
         return resolved
 
-    def _resolve_ref(self, ref: Any, path: List[str]) -> Any:
-        """Resolve a ``_ref`` mapping.
+    def _resolve_ref(self, ref: Any, path: list[str]) -> Any:
+        """
+        Resolve a ``_ref`` mapping.
 
         :param ref: Reference value.
         :param path: Dotted path context.
         :type ref: object
         :type path: list[str]
         :returns: Resolved referenced object or attribute.
+        :rtype: object
         :raises ConfigReferenceError: If the ref is invalid or missing.
         """
         if not isinstance(ref, str) or not ref:
@@ -271,14 +281,16 @@ class _Resolver:
                     ) from exc
         return target
 
-    def _resolve_top_level(self, key: str, path: List[str]) -> Any:
-        """Resolve a top-level config entry, with cycle detection.
+    def _resolve_top_level(self, key: str, path: list[str]) -> Any:
+        """
+        Resolve a top-level config entry, with cycle detection.
 
         :param key: Top-level key to resolve.
         :param path: Dotted path context.
         :type key: str
         :type path: list[str]
         :returns: Resolved value.
+        :rtype: object
         :raises CircularReferenceError: If a cycle is detected.
         """
         if key in self._resolved_top:
@@ -302,14 +314,16 @@ class _Resolver:
         self._resolved_top[key] = resolved
         return resolved
 
-    def _resolve_entries(self, value: Dict[str, Any], path: List[str]) -> Dict[Any, Any]:
-        """Resolve a mapping encoded via ``_entries``.
+    def _resolve_entries(self, value: dict[str, Any], path: list[str]) -> dict[Any, Any]:
+        """
+        Resolve a mapping encoded via ``_entries``.
 
         :param value: Mapping containing ``_entries`` list.
         :param path: Dotted path context.
-        :type value: dict
+        :type value: dict[str, Any]
         :type path: list[str]
         :returns: Resolved mapping.
+        :rtype: dict[Any, Any]
         :raises ResolutionError: If entries are malformed.
         """
         entries = value.get("_entries")
@@ -325,7 +339,7 @@ class _Resolver:
                 file_path=self._file_path,
                 config_path=".".join(path),
             )
-        resolved: Dict[Any, Any] = {}
+        resolved: dict[Any, Any] = dict()
         for idx, entry in enumerate(entries):
             if not isinstance(entry, dict) or "_key" not in entry or "_value" not in entry:
                 raise ResolutionError(
@@ -352,14 +366,16 @@ class _Resolver:
             resolved[key] = val
         return resolved
 
-    def _resolve_func(self, value: Dict[str, Any], path: List[str]) -> Any:
-        """Resolve a ``_func`` mapping to a callable.
+    def _resolve_func(self, value: dict[str, Any], path: list[str]) -> Any:
+        """
+        Resolve a ``_func`` mapping to a callable.
 
         :param value: Mapping containing ``_func``.
         :param path: Dotted path context.
-        :type value: dict
+        :type value: dict[str, Any]
         :type path: list[str]
         :returns: Imported callable.
+        :rtype: object
         :raises ValidationError: If extra keys accompany ``_func``.
         """
         extras = set(value) - {"_func"}
@@ -379,14 +395,16 @@ class _Resolver:
         except ImportResolutionError:
             raise
 
-    def _resolve_type(self, value: Dict[str, Any], path: List[str]) -> Any:
-        """Resolve a ``_type`` mapping into an instance.
+    def _resolve_type(self, value: dict[str, Any], path: list[str]) -> Any:
+        """
+        Resolve a ``_type`` mapping into an instance.
 
         :param value: Mapping containing ``_type`` and constructor data.
         :param path: Dotted path context.
-        :type value: dict
+        :type value: dict[str, Any]
         :type path: list[str]
         :returns: Constructed instance (possibly cached).
+        :rtype: object
         """
         type_path = value.get("_type")
         args = value.get("_args", [])
@@ -444,21 +462,22 @@ class _Resolver:
 
 
 def _collect_refs(
-    value: Any, *, path: Optional[List[str]] = None
-) -> Iterable[Tuple[str, str]]:
-    """Collect ``_ref`` occurrences from a config tree.
+    value: Any, *, path: Optional[list[str]] = None
+) -> Iterable[tuple[str, str]]:
+    """
+    Collect ``_ref`` occurrences from a config tree.
 
     :param value: Root value to inspect.
     :param path: Current path stack.
     :type value: object
     :type path: list[str] | None
     :returns: Iterable of (config_path, ref_target) pairs.
+    :rtype: collections.abc.Iterable[tuple[str, str]]
     """
-    if path is None:
-        path = []
+    path = path or list()
     if isinstance(value, dict):
         if "_ref" in value:
-            yield (".".join(path), value["_ref"])
+            yield ".".join(path), value["_ref"]
             return
         for key, child in value.items():
             yield from _collect_refs(child, path=path + [str(key)])
@@ -472,13 +491,14 @@ def _collect_refs(
 
 def _validate_signature(
     target: Any,
-    args: Tuple[Any, ...],
-    kwargs: Dict[str, Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
     *,
     file_path: Optional[str],
     config_path: str,
-) -> Dict[str, Any]:
-    """Validate constructor signature and filter extra kwargs.
+) -> dict[str, Any]:
+    """
+    Validate constructor signature and filter extra kwargs.
 
     :param target: Callable to validate.
     :param args: Positional arguments.
@@ -486,11 +506,12 @@ def _validate_signature(
     :param file_path: Source config path for context.
     :param config_path: Dotted config path for context.
     :type target: object
-    :type args: tuple
-    :type kwargs: dict
+    :type args: tuple[Any, ...]
+    :type kwargs: dict[str, Any]
     :type file_path: str | None
     :type config_path: str
     :returns: Possibly filtered kwargs.
+    :rtype: dict[str, Any]
     :raises ConstructorError: If required parameters are missing.
     """
     try:
@@ -523,7 +544,7 @@ def _validate_signature(
             config_path=config_path,
         ) from exc
 
-    missing = []
+    missing = list()
     for name, param in signature.parameters.items():
         if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
             continue

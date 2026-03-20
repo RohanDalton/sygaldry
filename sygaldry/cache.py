@@ -10,36 +10,33 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Optional
 
 from .errors import ConfigConflictError
 
 _NOT_FOUND = object()
 
 
-def _normalize_for_hash(value: Any, *, _memo: Optional[Dict[int, str]] = None) -> Any:
-    """Normalize values into JSON-serializable structures for hashing.
+def _normalize_for_hash(value: Any, *, _memo: Optional[dict[int, str]] = None) -> Any:
+    """
+    Normalize values into JSON-serializable structures for hashing.
 
     :param value: Value to normalize.
     :type value: object
     :returns: JSON-serializable structure.
+    :rtype: object
     """
-    if _memo is None:
-        _memo = {}
+    _memo = _memo or dict()
 
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
-
-    if isinstance(value, Path):
+    elif isinstance(value, Path):
         return {"__path__": str(value)}
-
-    if isinstance(value, bytes):
+    elif isinstance(value, bytes):
         return {"__bytes__": value.hex()}
-
-    if isinstance(value, (list, tuple)):
+    elif isinstance(value, (list, tuple)):
         return [_normalize_for_hash(item, _memo=_memo) for item in value]
-
-    if isinstance(value, dict):
+    elif isinstance(value, dict):
         entries = list()
         for key, val in value.items():
             norm_key = _normalize_for_hash(key, _memo=_memo)
@@ -54,8 +51,7 @@ def _normalize_for_hash(value: Any, *, _memo: Optional[Dict[int, str]] = None) -
             )
         )
         return {"__dict__": [[key, value] for key, value in entries]}
-
-    if isinstance(value, set):
+    elif isinstance(value, set):
         items = [_normalize_for_hash(item, _memo=_memo) for item in value]
         items.sort(
             key=lambda item: json.dumps(
@@ -66,23 +62,25 @@ def _normalize_for_hash(value: Any, *, _memo: Optional[Dict[int, str]] = None) -
             )
         )
         return {"__set__": items}
+    else:
+        obj_id = id(value)
+        token = _memo.get(obj_id)
+        if token is None:
+            token = f"{value.__class__.__module__}.{value.__class__.__qualname__}@{obj_id}"
+            _memo[obj_id] = token
+        return {"__object__": token}
 
-    obj_id = id(value)
-    token = _memo.get(obj_id)
-    if token is None:
-        token = f"{value.__class__.__module__}.{value.__class__.__qualname__}@{obj_id}"
-        _memo[obj_id] = token
-    return {"__object__": token}
 
-
-def _canonical_hash(args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> str:
-    """Compute a canonical hash for args/kwargs.
+def _canonical_hash(args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
+    """
+    Compute a canonical hash for args/kwargs.
 
     :param args: Positional arguments for constructor.
     :param kwargs: Keyword arguments for constructor.
-    :type args: tuple
-    :type kwargs: dict
+    :type args: tuple[Any, ...]
+    :type kwargs: dict[str, Any]
     :returns: SHA-256 hash of canonical JSON payload.
+    :rtype: str
     :raises ConfigConflictError: If the payload is not JSON-serializable.
     """
     payload = _normalize_for_hash({"args": args, "kwargs": kwargs})
@@ -109,14 +107,14 @@ class Instances:
         """
         Initialize an empty cache.
         """
-        self._entries: Dict[Tuple[str, Optional[str], Optional[str]], CacheEntry] = {}
+        self._entries: dict[tuple[str, Optional[str], Optional[str]], CacheEntry] = dict()
 
     @staticmethod
     def _cache_key(
         type_path: str,
         instance: Optional[str],
         spec_hash: Optional[str],
-    ) -> Tuple[str, Optional[str], Optional[str]]:
+    ) -> tuple[str, Optional[str], Optional[str]]:
         if instance is None:
             return (type_path, None, spec_hash)
         return (type_path, instance, None)
@@ -130,7 +128,8 @@ class Instances:
         file_path: Optional[str] = None,
         config_path: Optional[str] = None,
     ) -> Any:
-        """Return a cached instance if present.
+        """
+        Return a cached instance if present.
 
         :param type_path: Dotted type path used as cache key.
         :param instance: Optional instance tag.
@@ -143,6 +142,7 @@ class Instances:
         :type file_path: str | None
         :type config_path: str | None
         :returns: Cached instance if found, or ``_NOT_FOUND`` sentinel.
+        :rtype: object
         :raises ConfigConflictError: If the cached hash conflicts.
         """
         if instance is None and expected_hash is None:
@@ -173,7 +173,8 @@ class Instances:
         file_path: Optional[str] = None,
         config_path: Optional[str] = None,
     ) -> Any:
-        """Insert or validate a cache entry.
+        """
+        Insert or validate a cache entry.
 
         :param type_path: Dotted type path used as cache key.
         :param instance: Optional instance tag.
@@ -188,6 +189,7 @@ class Instances:
         :type file_path: str | None
         :type config_path: str | None
         :returns: The inserted instance.
+        :rtype: object
         :raises ConfigConflictError: If an existing entry conflicts.
         """
         key = self._cache_key(type_path, instance, spec_hash)
@@ -205,15 +207,16 @@ class Instances:
         self,
         type_path: str,
         instance: Optional[str],
-        args: Tuple[Any, ...],
-        kwargs: Dict[str, Any],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
         factory: Callable[[], Any],
         *,
         transient: bool = False,
         file_path: Optional[str] = None,
         config_path: Optional[str] = None,
     ) -> Any:
-        """Get or create a cached instance.
+        """
+        Get or create a cached instance.
 
         :param type_path: Dotted type path used as cache key.
         :param instance: Optional instance tag.
@@ -225,13 +228,14 @@ class Instances:
         :param config_path: Dotted config path for context.
         :type type_path: str
         :type instance: str | None
-        :type args: tuple
-        :type kwargs: dict
-        :type factory: collections.abc.Callable
+        :type args: tuple[Any, ...]
+        :type kwargs: dict[str, Any]
+        :type factory: collections.abc.Callable[[], Any]
         :type transient: bool
         :type file_path: str | None
         :type config_path: str | None
         :returns: Cached or newly created instance.
+        :rtype: object
         """
         if transient:
             return factory()

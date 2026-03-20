@@ -13,7 +13,7 @@ def test_cache_reuses_instance_for_same_spec():
     THEN:  The same instance is returned both times.
     """
     cache = Instances()
-    created = []
+    created = list()
 
     def factory():
         obj = object()

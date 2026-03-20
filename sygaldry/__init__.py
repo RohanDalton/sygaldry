@@ -5,7 +5,7 @@ Public API for Sygaldry.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from .cache import Instances
 from .artificery import Artificery
@@ -24,8 +24,9 @@ def load(
     *,
     cache: Optional[Instances] = None,
     transient: bool = False,
-) -> Dict[str, Any]:
-    """Load, interpolate, and resolve a config file.
+) -> dict[str, Any]:
+    """
+    Load, interpolate, and resolve a config file.
 
     :param path: Path to a YAML or TOML config file.
     :param cache: Optional instance cache.
@@ -34,6 +35,7 @@ def load(
     :type cache: Instances | None
     :type transient: bool
     :returns: Resolved configuration mapping.
+    :rtype: dict[str, Any]
     """
     file_path = Path(path)
     config = load_config(file_path)

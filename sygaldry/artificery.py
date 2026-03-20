@@ -1,26 +1,23 @@
-"""
-Artificery factory conveniences.
-"""
-
 from __future__ import annotations
 
 __author__ = "Rohan B. Dalton"
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from .cache import Instances
 from .loader import load_config
 from .resolver import resolve_config
 
 
-def load_config_file(path: str | Path) -> Dict[str, Any]:
+def load_config_file(path: str | Path) -> dict[str, Any]:
     """
     Load a config file without resolving components.
 
     :param path: Path to a YAML or TOML config file.
     :type path: str | pathlib.Path
     :returns: Parsed and interpolated mapping.
+    :rtype: dict[str, Any]
     """
     file_path = Path(path)
     return load_config(file_path)
@@ -40,9 +37,12 @@ class ArtificeryLoader:
         """
         self._path = Path(path)
 
-    def load(self) -> Dict[str, Any]:
+    def load(self) -> dict[str, Any]:
         """
         Load and return the config mapping.
+
+        :returns: Parsed and interpolated configuration mapping.
+        :rtype: dict[str, Any]
         """
         return load_config(self._path)
 
@@ -56,7 +56,7 @@ class Artificery:
         self,
         file_path: str | Path | None = None,
         *,
-        config: Optional[Dict[str, Any]] = None,
+        config: Optional[dict[str, Any]] = None,
         cache: Optional[Instances] = None,
         transient: bool = False,
     ) -> None:
@@ -80,11 +80,12 @@ class Artificery:
         self._cache = cache or Instances()
         self._transient = transient
 
-    def resolve(self) -> Dict[str, Any]:
+    def resolve(self) -> dict[str, Any]:
         """
         Resolve the configured mapping to an object graph.
 
         :returns: Resolved configuration mapping.
+        :rtype: dict[str, Any]
         :raises ValueError: If no config source is available.
         """
         if self._config is None:

@@ -8,9 +8,32 @@ authors = [{name = "Rohan B. Dalton", email = "rohan@rohandalton.io"}]
 readme = "README.md"
 classifiers = ["License :: OSI Approved :: MIT License"]
 dynamic = ["version", "description"]
+dependencies = [
+    "pyyaml>=6.0.3,<7",
+    "click>=8.0,<9",
+    "rich-click>=1.7,<2",
+]
+
+[project.scripts]
+sygaldry = "sygaldry.cli:cli"
 
 [project.urls]
 Home = "https://github.com/RohanDalton/sygaldry"
+
+[tool.coverage.paths]
+source = ["sygaldry"]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.coverage.run]
+branch = true
+parallel = true
+source = ["sygaldry"]
+
+[tool.pytest.ini_options]
+addopts = "--cov=sygaldry --cov-branch --cov-report=term-missing --cov-report=html:coverage"
+testpaths = "tests"
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
@@ -21,6 +44,8 @@ conda-pypi-map = { conda-forge = "conda_pypi_map.json" }
 
 [tool.pixi.dependencies]
 pyyaml = ">=6.0.3,<7"
+click = ">=8.0,<9"
+rich-click = ">=1.7,<2"
 
 [tool.pixi.feature.test.dependencies]
 pytest = "*"
@@ -48,4 +73,12 @@ quote-style = "double"
 skip-magic-trailing-comma = false
 
 [tool.ruff.lint]
+ignore = ["C408"]
 select = ["B", "C4", "FURB", "I", "PERF", "PL", "S", "SIM", "UP"]
+
+
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004",
+              "S101",
+             ]

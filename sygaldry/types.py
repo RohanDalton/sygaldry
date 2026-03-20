@@ -21,6 +21,7 @@ RESERVED_KEYS = frozenset(
         "_deep",
         "_include",
         "_entries",
+        "_call",
     }
 )
 
@@ -43,6 +44,7 @@ def import_dotted_path(
     :param config_path: Dotted config path for context.
     :type config_path: str | None
     :returns: Imported module attribute or callable.
+    :rtype: object
     :raises ImportResolutionError: If the module or attribute cannot be imported.
     """
     if not dotted_path or not isinstance(dotted_path, str):

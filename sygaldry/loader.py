@@ -9,7 +9,7 @@ __author__ = "Rohan B. Dalton"
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Iterable, Optional
 
 from .errors import (
     CircularIncludeError,
@@ -24,13 +24,19 @@ try:
 except ImportError:  # pragma: no cover - fallback only
     import tomli as tomllib  # type: ignore
 
+_INTEGER_RE = re.compile(r"^(?P<integer>[-+]?\d+)$")
+_FLOAT_RE = re.compile(r"^(?P<float>[-+]?\d*\.\d+(?:[eE][-+]?\d+)?)$")
+_SCI_INT_RE = re.compile(r"^(?P<sci_int>[-+]?\d+[eE][-+]?\d+)$")
 
-def load_config(path: Path) -> Dict[str, Any]:
-    """Load and interpolate a config file.
+
+def load_config(path: Path) -> dict[str, Any]:
+    """
+    Load and interpolate a config file.
 
     :param path: Path to a YAML or TOML config file.
     :type path: pathlib.Path
     :returns: Merged, interpolated configuration mapping.
+    :rtype: dict[str, Any]
     """
     visited: set[Path] = set()
     data = _load_with_includes(path, ancestors=[], visited=visited)
@@ -38,9 +44,10 @@ def load_config(path: Path) -> Dict[str, Any]:
 
 
 def _load_with_includes(
-    path: Path, ancestors: List[Path], visited: set[Path]
-) -> Dict[str, Any]:
-    """Load a file and recursively apply includes.
+    path: Path, ancestors: list[Path], visited: set[Path]
+) -> dict[str, Any]:
+    """
+    Load a file and recursively apply includes.
 
     Uses *ancestors* (the current include stack) for true cycle detection
     and *visited* (a global set) for diamond-include deduplication.
@@ -52,6 +59,7 @@ def _load_with_includes(
     :type ancestors: list[pathlib.Path]
     :type visited: set[pathlib.Path]
     :returns: Merged configuration mapping.
+    :rtype: dict[str, Any]
     :raises CircularIncludeError: If a circular include is detected.
     """
     path = path.expanduser().resolve()
@@ -67,7 +75,7 @@ def _load_with_includes(
     visited.add(path)
     raw = _load_file(path)
     includes = raw.pop("_include", None)
-    merged: Dict[str, Any] = dict()
+    merged: dict[str, Any] = dict()
     child_ancestors = ancestors + [path]
 
     if includes:
@@ -83,13 +91,15 @@ def _load_with_includes(
 
 
 def _resolve_include(base: Path, include: Any) -> Path:
-    """Resolve an include entry relative to its base file.
+    """
+    Resolve an include entry relative to its base file.
 
     :param base: Path to the including file.
     :param include: Include entry value.
     :type base: pathlib.Path
     :type include: object
     :returns: Absolute path to the included file.
+    :rtype: pathlib.Path
     :raises IncludeError: If the include value is invalid.
     """
     if not isinstance(include, str):
@@ -100,12 +110,14 @@ def _resolve_include(base: Path, include: Any) -> Path:
     return candidate
 
 
-def _load_file(path: Path) -> Dict[str, Any]:
-    """Load a YAML or TOML file into a mapping.
+def _load_file(path: Path) -> dict[str, Any]:
+    """
+    Load a YAML or TOML file into a mapping.
 
     :param path: Path to the file on disk.
     :type path: pathlib.Path
     :returns: Parsed configuration mapping.
+    :rtype: dict[str, Any]
     :raises ParseError: If reading or parsing fails.
     """
     suffix = path.suffix.lower()
@@ -122,9 +134,9 @@ def _load_file(path: Path) -> Dict[str, Any]:
                 raise ParseError(
                     "PyYAML is required to parse YAML files.", file_path=str(path)
                 ) from exc
-            data = yaml.safe_load(content) or {}
+            data = yaml.safe_load(content) or dict()
         elif suffix == ".toml":
-            data = tomllib.loads(content) or {}
+            data = tomllib.loads(content) or dict()
         else:
             raise ParseError(f"Unsupported config format: {suffix}", file_path=str(path))
     except ParseError:
@@ -137,14 +149,16 @@ def _load_file(path: Path) -> Dict[str, Any]:
     return data
 
 
-def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-    """Deep-merge two mappings (dicts merge, lists/scalars replace).
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """
+    Deep-merge two mappings (dicts merge, lists/scalars replace).
 
     :param base: Base mapping.
     :param override: Override mapping.
-    :type base: dict
-    :type override: dict
+    :type base: dict[str, Any]
+    :type override: dict[str, Any]
     :returns: Merged mapping.
+    :rtype: dict[str, Any]
     """
     result = dict(base)
     for key, value in override.items():
@@ -155,14 +169,16 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
     return result
 
 
-def _interpolate_config(config: Dict[str, Any], *, file_path: Optional[str]) -> Dict[str, Any]:
-    """Apply string interpolation to a config mapping.
+def _interpolate_config(config: dict[str, Any], *, file_path: Optional[str]) -> dict[str, Any]:
+    """
+    Apply string interpolation to a config mapping.
 
     :param config: Raw configuration mapping.
     :param file_path: Source config path for context.
-    :type config: dict
+    :type config: dict[str, Any]
     :type file_path: str | None
     :returns: Interpolated mapping.
+    :rtype: dict[str, Any]
     """
     resolver = _InterpolationResolver(config, file_path=file_path)
     return resolver.resolve_value(config, path=[])
@@ -173,27 +189,30 @@ class _InterpolationResolver:
     Interpolation resolver for config mappings.
     """
 
-    def __init__(self, raw: Dict[str, Any], *, file_path: Optional[str]) -> None:
-        """Initialize the resolver.
+    def __init__(self, raw: dict[str, Any], *, file_path: Optional[str]) -> None:
+        """
+        Initialize the resolver.
 
         :param raw: Raw configuration mapping.
         :param file_path: Source config path for context.
-        :type raw: dict
+        :type raw: dict[str, Any]
         :type file_path: str | None
         """
         self._raw = raw
         self._file_path = file_path
-        self._cache: Dict[str, Any] = {}
-        self._visiting: List[str] = []
+        self._cache: dict[str, Any] = dict()
+        self._visiting: list[str] = list()
 
-    def resolve_value(self, value: Any, *, path: List[str]) -> Any:
-        """Resolve a value with interpolation.
+    def resolve_value(self, value: Any, *, path: list[str]) -> Any:
+        """
+        Resolve a value with interpolation.
 
         :param value: Value to resolve.
         :param path: Dotted path context.
         :type value: object
         :type path: list[str]
         :returns: Resolved value.
+        :rtype: object
         """
         if isinstance(value, dict):
             return self._resolve_dict(value, path)
@@ -211,16 +230,18 @@ class _InterpolationResolver:
             return self._interpolate_string(value, path)
         return value
 
-    def _resolve_dict(self, value: Dict[str, Any], path: List[str]) -> Dict[str, Any]:
-        """Resolve a dict by interpolating keys and values.
+    def _resolve_dict(self, value: dict[str, Any], path: list[str]) -> dict[str, Any]:
+        """
+        Resolve a dict by interpolating keys and values.
 
         :param value: Mapping to resolve.
         :param path: Dotted path context.
-        :type value: dict
+        :type value: dict[str, Any]
         :type path: list[str]
         :returns: Resolved mapping.
+        :rtype: dict[str, Any]
         """
-        resolved: Dict[str, Any] = {}
+        resolved: dict[str, Any] = dict()
         for key, val in value.items():
             new_key = (
                 self.resolve_value(key, path=path + ["<key>"]) if isinstance(key, str) else key
@@ -239,14 +260,16 @@ class _InterpolationResolver:
             resolved[new_key] = new_val
         return resolved
 
-    def _interpolate_string(self, value: str, path: List[str]) -> Any:
-        """Interpolate a string with placeholders.
+    def _interpolate_string(self, value: str, path: list[str]) -> Any:
+        """
+        Interpolate a string with placeholders.
 
         :param value: String value to interpolate.
         :param path: Dotted path context.
         :type value: str
         :type path: list[str]
         :returns: Interpolated string or inferred scalar.
+        :rtype: object
         """
         parts, has_token, has_text = self._split_interpolation(value, path)
         if not has_token:
@@ -260,7 +283,7 @@ class _InterpolationResolver:
                 return _infer_scalar(resolved)
             return resolved
 
-        combined_parts: List[str] = []
+        combined_parts: list[str] = list()
         for kind, payload in parts:
             if kind == "text":
                 combined_parts.append(payload)
@@ -270,66 +293,69 @@ class _InterpolationResolver:
         return "".join(combined_parts)
 
     def _split_interpolation(
-        self, value: str, path: List[str]
-    ) -> Tuple[List[Tuple[str, str]], bool, bool]:
-        """Split a string into interpolation and text parts.
+        self, value: str, path: list[str]
+    ) -> tuple[list[tuple[str, str]], bool, bool]:
+        """
+        Split a string into interpolation and text parts.
 
         :param value: String value to split.
         :param path: Dotted path context.
         :type value: str
         :type path: list[str]
-        :returns: Tuple of parts list and single-token flag.
+        :returns: tuple of parts list, has-token flag, and has-text flag.
+        :rtype: tuple[list[tuple[str, str]], bool, bool]
         :raises InterpolationError: If an interpolation is unterminated.
         """
-        parts: List[Tuple[str, str]] = []
-        i = 0
+        parts: list[tuple[str, str]] = list()
+        idx = 0
         has_token = False
         has_text = False
-        while i < len(value):
-            if value.startswith("$${", i):
+        while idx < len(value):
+            if value.startswith("$${", idx):
                 parts.append(("text", "${"))
                 has_text = True
-                i += 3
+                idx += 3
                 continue
-            if value.startswith("${", i):
+            if value.startswith("${", idx):
                 has_token = True
-                i += 2
+                idx += 2
                 depth = 1
-                buf: List[str] = []
-                while i < len(value):
-                    if value.startswith("$${", i):
-                        buf.append("${")
-                        i += 3
+                buffer: list[str] = list()
+                while idx < len(value):
+                    if value.startswith("$${", idx):
+                        buffer.append("${")
+                        idx += 3
                         continue
-                    if value.startswith("${", i):
+                    if value.startswith("${", idx):
                         depth += 1
-                        buf.append("${")
-                        i += 2
+                        buffer.append("${")
+                        idx += 2
                         continue
-                    if value[i] == "}":
+                    if value[idx] == "}":
                         depth -= 1
-                        i += 1
+                        idx += 1
                         if depth == 0:
                             break
-                        buf.append("}")
+                        buffer.append("}")
                         continue
-                    buf.append(value[i])
-                    i += 1
+                    buffer.append(value[idx])
+                    idx += 1
                 if depth != 0:
                     raise InterpolationError(
                         "Unterminated interpolation.",
                         file_path=self._file_path,
                         config_path=".".join(path),
                     )
-                parts.append(("token", "".join(buf)))
+                parts.append(("token", "".join(buffer)))
                 continue
-            parts.append(("text", value[i]))
+            parts.append(("text", value[idx]))
             has_text = True
-            i += 1
+            idx += 1
         return parts, has_token, has_text
 
-    def _resolve_placeholder(self, token: str, path: List[str]) -> Any:
-        """Resolve a single interpolation token.
+    def _resolve_placeholder(self, token: str, path: list[str]) -> Any:
+        """
+        Resolve a single interpolation token.
 
         Resolution order:
         1. Config path lookup (if the key exists in the config tree).
@@ -341,6 +367,7 @@ class _InterpolationResolver:
         :type token: str
         :type path: list[str]
         :returns: Resolved value for the token.
+        :rtype: object
         :raises InterpolationError: If the token cannot be resolved.
         """
         if ":-" in token:
@@ -368,14 +395,16 @@ class _InterpolationResolver:
             config_path=".".join(path),
         )
 
-    def _resolve_config_path(self, key: str, path: List[str]) -> Any:
-        """Resolve a config path interpolation.
+    def _resolve_config_path(self, key: str, path: list[str]) -> Any:
+        """
+        Resolve a config path interpolation.
 
         :param key: Dotted config path.
         :param path: Dotted path context.
         :type key: str
         :type path: list[str]
         :returns: Resolved config value.
+        :rtype: object
         :raises InterpolationError: If the path is missing.
         """
         dotted = key
@@ -401,25 +430,19 @@ class _InterpolationResolver:
         return resolved
 
 
-class _Missing:
-    """
-    Sentinel for missing interpolation paths.
-    """
-
-    pass
-
-
-_MISSING = _Missing()
+_MISSING = object()
 
 
 def _get_by_path(data: Any, dotted: str) -> Any:
-    """Resolve a dotted path into a nested structure.
+    """
+    Resolve a dotted path into a nested structure.
 
     :param data: Root data structure.
     :param dotted: Dotted path to resolve.
     :type data: object
     :type dotted: str
     :returns: Resolved value or ``_MISSING`` sentinel.
+    :rtype: object
     """
     current = data
     if dotted == "":
@@ -442,11 +465,13 @@ def _get_by_path(data: Any, dotted: str) -> Any:
 
 
 def _infer_scalar(value: str) -> Any:
-    """Infer a scalar type from a string.
+    """
+    Infer a scalar type from a string.
 
     :param value: String value to coerce.
     :type value: str
     :returns: Inferred scalar type or original string.
+    :rtype: object
     """
     lowered = value.strip().lower()
     if lowered in {"true", "false"}:
@@ -454,12 +479,11 @@ def _infer_scalar(value: str) -> Any:
     if lowered in {"null", "none"}:
         return None
     try:
-        if re.fullmatch(r"[-+]?\d+", value.strip()):
-            return int(value.strip())
-        if re.fullmatch(r"[-+]?\d*\.\d+([eE][-+]?\d+)?", value.strip()) or re.fullmatch(
-            r"[-+]?\d+[eE][-+]?\d+", value.strip()
-        ):
-            return float(value.strip())
+        stripped = value.strip()
+        if _INTEGER_RE.match(stripped):
+            return int(stripped)
+        if _FLOAT_RE.match(stripped) or _SCI_INT_RE.match(stripped):
+            return float(stripped)
     except Exception:
         return value
     return value

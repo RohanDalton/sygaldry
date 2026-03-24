@@ -486,5 +486,54 @@ def check(
         raise SystemExit(1) from None
 
 
+@cli.command()
+@_config_options
+@click.option("-v", "--verbose", is_flag=True, help="Show full tracebacks on error.")
+def interactive(
+    config_paths: tuple[Path, ...],
+    set_overrides: tuple[str, ...],
+    use_overrides: tuple[str, ...],
+    verbose: bool,
+) -> None:
+    """Start an interactive Python session with the Artificery loaded."""
+    import code
+
+    try:
+        art = _build_artificery(config_paths, set_overrides, use_overrides)
+        # Eagerly prepare the config so errors surface before the REPL starts.
+        _ = art.config
+
+    except SygaldryError as exc:
+        _console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise SystemExit(1) from None
+    except Exception as exc:
+        if verbose:
+            _console.print_exception()
+        else:
+            _console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise SystemExit(1) from None
+
+    banner_lines = [
+        "Sygaldry interactive session",
+        "",
+        "Available variables:",
+        "  artificery  - Artificery instance (config loaded & merged)",
+        "",
+        "Quick start:",
+        "  artificery.config        # view the interpolated config",
+        "  artificery.resolve()     # resolve all objects",
+        "",
+    ]
+    banner = "\n".join(banner_lines)
+    _console.print(f"[bold green]{banner_lines[0]}[/bold green]")
+    _console.print()
+    _console.print("  Config files: " + ", ".join(str(p) for p in config_paths))
+    _console.print(f"  Top-level keys: {sorted(art.config.keys())}")
+    _console.print()
+
+    namespace: dict[str, Any] = {"artificery": art, "Artificery": Artificery}
+    code.interact(banner=banner, local=namespace, exitmsg="")
+
+
 if __name__ == "__main__":
     cli()

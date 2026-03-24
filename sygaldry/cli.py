@@ -3,7 +3,6 @@ from __future__ import annotations
 __author__ = "Rohan B. Dalton"
 
 import json
-import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -12,39 +11,12 @@ import yaml
 from rich.console import Console
 from rich.syntax import Syntax
 
+from .artificery import Artificery
 from .checker import check as run_check
 from .errors import CLIError, SygaldryError
-from .loader import (
-    _MISSING,
-    _deep_merge,
-    _get_by_path,
-    _infer_scalar,
-    _interpolate_config,
-    _load_with_includes,
-)
-from .resolver import resolve_config
+from .loader import _infer_scalar
 
 _console = Console(stderr=True)
-
-
-def _set_by_path(data: dict[str, Any], dotted_path: str, value: Any) -> None:
-    """
-    Set a nested value by dotted path, creating intermediate dicts.
-
-    :param data: Root mapping to modify in-place.
-    :param dotted_path: Dotted key path (e.g. ``"db.host"``).
-    :param value: Value to set.
-    :type data: dict
-    :type dotted_path: str
-    :type value: object
-    """
-    segments = dotted_path.split(".")
-    current = data
-    for segment in segments[:-1]:
-        if segment not in current or not isinstance(current[segment], dict):
-            current[segment] = dict()
-        current = current[segment]
-    current[segments[-1]] = value
 
 
 def _parse_set_option(raw: str) -> tuple[str, Any]:
@@ -85,55 +57,41 @@ def _parse_use_option(raw: str) -> tuple[str, str]:
     return target, source
 
 
-def _apply_overrides(
-    config: dict[str, Any],
-    sets: tuple[str, ...],
-    uses: tuple[str, ...],
-) -> dict[str, Any]:
+def _build_artificery(
+    config_paths: tuple[Path, ...],
+    set_overrides: tuple[str, ...],
+    use_overrides: tuple[str, ...],
+    *,
+    cache: Any | None = None,
+    transient: bool = False,
+) -> Artificery:
     """
-    Apply ``--use`` then ``--set`` overrides to raw config.
+    Build an Artificery from CLI options.
 
-    :param config: Merged raw config (pre-interpolation).
-    :param sets: ``--set`` option values.
-    :param uses: ``--use`` option values.
-    :type config: dict
-    :type sets: tuple[str, ...]
-    :type uses: tuple[str, ...]
-    :returns: Modified config.
+    :param config_paths: Config file paths.
+    :param set_overrides: ``--set`` option values.
+    :param use_overrides: ``--use`` option values.
+    :param cache: Optional instance cache.
+    :param transient: If True, bypass caching.
+    :returns: Configured Artificery instance.
     """
-    for raw in uses:
-        target, source = _parse_use_option(raw)
-        value = _get_by_path(config, source)
-        if value is _MISSING:
-            available = sorted(config.keys())
-            raise CLIError(
-                f"--use source path '{source}' not found in config. "
-                f"Available top-level keys: {available}"
-            )
-        _set_by_path(config, target, value)
-
-    for raw in sets:
+    overrides: dict[str, Any] = dict()
+    for raw in set_overrides:
         key, value = _parse_set_option(raw)
-        _set_by_path(config, key, value)
+        overrides[key] = value
 
-    return config
+    uses: dict[str, str] = dict()
+    for raw in use_overrides:
+        target, source = _parse_use_option(raw)
+        uses[target] = source
 
-
-def _load_and_merge(paths: tuple[Path, ...]) -> dict[str, Any]:
-    """
-    Load multiple config files and deep-merge in order.
-
-    :param paths: Config file paths.
-    :type paths: tuple[Path, ...]
-    :returns: Merged raw config mapping.
-    """
-    merged: dict[str, Any] = dict()
-    for path in paths:
-        resolved_path = path.expanduser().resolve()
-        visited: set[Path] = set()
-        data = _load_with_includes(resolved_path, ancestors=[], visited=visited)
-        merged = _deep_merge(merged, data)
-    return merged
+    return Artificery(
+        *config_paths,
+        overrides=overrides or None,
+        uses=uses or None,
+        cache=cache,
+        transient=transient,
+    )
 
 
 def _extract_call_defaults(
@@ -344,19 +302,17 @@ def run(
     Load config, resolve an object, and call it.
     """
     try:
-        merged = _load_and_merge(config_paths)
-        merged = _apply_overrides(merged, set_overrides, use_overrides)
-        interpolated = _interpolate_config(merged, file_path="<cli>")
-        call_method, call_args = _extract_call_defaults(interpolated, object_key)
+        art = _build_artificery(config_paths, set_overrides, use_overrides)
+        call_method, call_args = _extract_call_defaults(art.config, object_key)
 
         final_method = method_name if method_name is not None else call_method
         final_args = _parse_method_args(method_args) if method_args else call_args
 
         if dry_run:
-            _print_dry_run(config_paths, object_key, final_method, final_args, interpolated)
+            _print_dry_run(config_paths, object_key, final_method, final_args, art.config)
             return
         else:
-            resolved = resolve_config(interpolated)
+            resolved = art.resolve()
 
             if object_key not in resolved:
                 available = sorted(resolved.keys())
@@ -422,17 +378,15 @@ def show(
 ) -> None:
     """Display the merged config for debugging."""
     try:
-        merged = _load_and_merge(config_paths)
-        merged = _apply_overrides(merged, set_overrides, use_overrides)
-        interpolated = _interpolate_config(merged, file_path="<cli>")
+        art = _build_artificery(config_paths, set_overrides, use_overrides)
 
         if list_objects:
-            for key in sorted(interpolated.keys()):
+            for key in sorted(art.config.keys()):
                 click.echo(key)
             return
 
         if resolved:
-            output = resolve_config(interpolated)
+            output = art.resolve()
             if object_key:
                 if object_key not in output:
                     available = sorted(output.keys())
@@ -445,17 +399,17 @@ def show(
                     click.echo(f"{key}: {repr(value)}")
             return
 
-        target = interpolated
+        display = art.config
         if object_key:
-            if object_key not in interpolated:
-                available = sorted(interpolated.keys())
+            if object_key not in display:
+                available = sorted(display.keys())
                 raise CLIError(f"Object '{object_key}' not found. Available keys: {available}")
-            target = interpolated[object_key]
+            display = display[object_key]
 
         if output_format == "json":
-            click.echo(json.dumps(target, indent=2, default=str))
+            click.echo(json.dumps(display, indent=2, default=str))
         else:
-            yaml_str = _format_config_yaml(target)
+            yaml_str = _format_config_yaml(display)
             syntax = Syntax(yaml_str, "yaml", theme="monokai")
             Console().print(syntax)
 
@@ -475,10 +429,7 @@ def validate(
 ) -> None:
     """Validate config without executing."""
     try:
-        merged = _load_and_merge(config_paths)
-        merged = _apply_overrides(merged, set_overrides, use_overrides)
-        interpolated = _interpolate_config(merged, file_path="<cli>")
-        resolve_config(interpolated)
+        _build_artificery(config_paths, set_overrides, use_overrides).resolve()
         _console.print("[bold green]Config is valid.[/bold green]")
 
     except SygaldryError as exc:
@@ -508,11 +459,9 @@ def check(
     """
 
     try:
-        merged = _load_and_merge(config_paths)
-        merged = _apply_overrides(merged, set_overrides, use_overrides)
-        interpolated = _interpolate_config(merged, file_path="<cli>")
+        art = _build_artificery(config_paths, set_overrides, use_overrides)
 
-        errors = run_check(config=interpolated, type_checker=type_checker)
+        errors = run_check(config=art.config, type_checker=type_checker)
 
         if not errors:
             _console.print("[bold green]No type errors found.[/bold green]")

@@ -29,8 +29,8 @@ RESERVED_KEYS = frozenset(
 def import_dotted_path(
     dotted_path: str,
     *,
-    file_path: Optional[str] = None,
-    config_path: Optional[str] = None,
+    file_path: str | None = None,
+    config_path: str | None = None,
 ) -> object:
     """
     Import a dotted path and return the target object.

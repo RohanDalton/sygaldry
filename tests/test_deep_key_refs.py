@@ -29,7 +29,7 @@ def test_yaml_deep_objects_with_key_refs():
     """
     config_path = Path(__file__).parent / "fixtures" / "deep_key_refs.yaml"
 
-    resolved = Artificery(file_path=config_path).resolve()
+    resolved = Artificery(config_path).resolve()
 
     root = resolved["root"]
     branch = resolved["branch"]
@@ -50,7 +50,7 @@ def test_toml_deep_objects_with_key_refs():
     """
     config_path = Path(__file__).parent / "fixtures" / "deep_key_refs.toml"
 
-    resolved = Artificery(file_path=config_path).resolve()
+    resolved = Artificery(config_path).resolve()
 
     root = resolved["root"]
     branch = resolved["branch"]

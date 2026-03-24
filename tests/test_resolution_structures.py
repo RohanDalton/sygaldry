@@ -1,6 +1,6 @@
 __author__ = "Rohan B. Dalton"
 
-from sygaldry.resolver import resolve_config
+from sygaldry.artificery import resolve_config
 
 
 class Wrapper:

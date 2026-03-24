@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import pytest
 
+from sygaldry.artificery import Artificery, _set_by_path
 from sygaldry.cli import (
-    _apply_overrides,
     _extract_call_defaults,
     _invoke_target,
     _parse_method_args,
     _parse_set_option,
     _parse_use_option,
-    _set_by_path,
 )
-from sygaldry.errors import CLIError
+from sygaldry.errors import CLIError, ConfigReferenceError
 
 
 def test_set_by_path_simple_key():
@@ -185,63 +184,74 @@ def test_parse_use_option_empty_source_raises():
         _parse_use_option("target=")
 
 
-def test_apply_overrides_set_simple():
+def test_artificery_overrides_set_simple(tmp_path):
     """
-    GIVEN: A config dict.
-    WHEN:  Applying a --set override.
+    GIVEN: A config file.
+    WHEN:  Applying a set override via Artificery.
     THEN:  The target value is overridden.
     """
-    config = {"db": {"host": "localhost"}}
-    result = _apply_overrides(config, sets=("db.host=prod-db",), uses=())
-    assert result["db"]["host"] == "prod-db"
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("db:\n  host: localhost\n", encoding="utf-8")
+    art = Artificery(cfg, overrides={"db.host": "prod-db"})
+    assert art.config["db"]["host"] == "prod-db"
 
 
-def test_apply_overrides_set_nested_creates_path():
+def test_artificery_overrides_set_nested_creates_path(tmp_path):
     """
-    GIVEN: An empty config dict.
-    WHEN:  Applying a --set override with a new nested path.
+    GIVEN: An empty config file.
+    WHEN:  Applying a set override with a new nested path.
     THEN:  Intermediate dicts are created.
     """
-    config = dict()
-    result = _apply_overrides(config, sets=("new.nested.key=42",), uses=())
-    assert result["new"]["nested"]["key"] == 42
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("{}\n", encoding="utf-8")
+    art = Artificery(cfg, overrides={"new.nested.key": 42})
+    assert art.config["new"]["nested"]["key"] == 42
 
 
-def test_apply_overrides_use_copies_value():
+def test_artificery_uses_copies_value(tmp_path):
     """
     GIVEN: A config with a defaults section.
-    WHEN:  Applying a --use override.
+    WHEN:  Applying a use mapping via Artificery.
     THEN:  The source value is copied to the target path.
     """
-    config = {"defaults": {"prod_host": "prod-db"}, "db": {"host": "localhost"}}
-    result = _apply_overrides(config, sets=(), uses=("db.host=defaults.prod_host",))
-    assert result["db"]["host"] == "prod-db"
-
-
-def test_apply_overrides_use_missing_source_raises():
-    """
-    GIVEN: A config without the --use source path.
-    WHEN:  Applying the override.
-    THEN:  A CLIError is raised.
-    """
-    config = {"db": {"host": "localhost"}}
-    with pytest.raises(CLIError, match="not found in config"):
-        _apply_overrides(config, sets=(), uses=("db.host=missing.path",))
-
-
-def test_apply_overrides_use_then_set_precedence():
-    """
-    GIVEN: Both --use and --set targeting the same key.
-    WHEN:  Applying overrides.
-    THEN:  The --set value takes precedence.
-    """
-    config = {"defaults": {"host": "use-host"}, "db": {"host": "original"}}
-    result = _apply_overrides(
-        config,
-        sets=("db.host=set-host",),
-        uses=("db.host=defaults.host",),
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text(
+        "defaults:\n  prod_host: prod-db\ndb:\n  host: localhost\n",
+        encoding="utf-8",
     )
-    assert result["db"]["host"] == "set-host"
+    art = Artificery(cfg, uses={"db.host": "defaults.prod_host"})
+    assert art.config["db"]["host"] == "prod-db"
+
+
+def test_artificery_uses_missing_source_raises(tmp_path):
+    """
+    GIVEN: A config without the use source path.
+    WHEN:  Preparing the config.
+    THEN:  A ConfigReferenceError is raised.
+    """
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text("db:\n  host: localhost\n", encoding="utf-8")
+    with pytest.raises(ConfigReferenceError, match="not found"):
+        Artificery(cfg, uses={"db.host": "missing.path"}).config
+
+
+def test_artificery_overrides_after_uses(tmp_path):
+    """
+    GIVEN: Both uses and overrides targeting the same key.
+    WHEN:  Preparing the config.
+    THEN:  The override value takes precedence.
+    """
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text(
+        "defaults:\n  host: use-host\ndb:\n  host: original\n",
+        encoding="utf-8",
+    )
+    art = Artificery(
+        cfg,
+        overrides={"db.host": "set-host"},
+        uses={"db.host": "defaults.host"},
+    )
+    assert art.config["db"]["host"] == "set-host"
 
 
 def test_parse_method_args_coercion():

@@ -9,7 +9,7 @@ from sygaldry.errors import (
     ConfigReferenceError,
     ValidationError,
 )
-from sygaldry.resolver import resolve_config
+from sygaldry.artificery import resolve_config
 
 
 class Demo:

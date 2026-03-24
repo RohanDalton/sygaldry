@@ -96,9 +96,7 @@ def test_run_deep_merge(tmp_path, runner):
         "override.yaml",
         "greeter:\n  name: override\n",
     )
-    result = runner.invoke(
-        cli, ["run", "-c", base, "-c", override, "--object", "greeter"]
-    )
+    result = runner.invoke(cli, ["run", "-c", base, "-c", override, "--object", "greeter"])
     assert result.exit_code == 0
     assert "Hello, override!" in result.output
 
@@ -230,9 +228,7 @@ def test_run_dry_run(tmp_path, runner):
         "config.yaml",
         "greeter:\n  _type: tests.test_cli_integration.Greeter\n  name: world\n",
     )
-    result = runner.invoke(
-        cli, ["run", "-c", cfg, "--object", "greeter", "--dry-run"]
-    )
+    result = runner.invoke(cli, ["run", "-c", cfg, "--object", "greeter", "--dry-run"])
     assert result.exit_code == 0
     assert "Hello, world!" not in result.output
     assert "Dry run summary" in result.output
@@ -245,14 +241,10 @@ def test_run_int_return_becomes_exit_code(tmp_path, runner):
         "config.yaml",
         "runner:\n  _type: tests.test_cli_integration.ExitCodeRunner\n",
     )
-    result = runner.invoke(
-        cli, ["run", "-c", cfg, "--object", "runner", "--method", "run"]
-    )
+    result = runner.invoke(cli, ["run", "-c", cfg, "--object", "runner", "--method", "run"])
     assert result.exit_code == 0
 
-    result = runner.invoke(
-        cli, ["run", "-c", cfg, "--object", "runner", "--method", "fail"]
-    )
+    result = runner.invoke(cli, ["run", "-c", cfg, "--object", "runner", "--method", "fail"])
     assert result.exit_code == 1
 
 

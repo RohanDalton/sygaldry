@@ -8,8 +8,9 @@ __author__ = "Rohan B. Dalton"
 
 import os
 import re
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 from .errors import (
     CircularIncludeError,
@@ -169,7 +170,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return result
 
 
-def _interpolate_config(config: dict[str, Any], *, file_path: Optional[str]) -> dict[str, Any]:
+def _interpolate_config(config: dict[str, Any], *, file_path: str | None) -> dict[str, Any]:
     """
     Apply string interpolation to a config mapping.
 
@@ -189,7 +190,7 @@ class _InterpolationResolver:
     Interpolation resolver for config mappings.
     """
 
-    def __init__(self, raw: dict[str, Any], *, file_path: Optional[str]) -> None:
+    def __init__(self, raw: dict[str, Any], *, file_path: str | None) -> None:
         """
         Initialize the resolver.
 

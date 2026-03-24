@@ -7,10 +7,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
+from .artificery import Artificery, resolve_config
 from .cache import Instances
-from .artificery import Artificery
-from .loader import load_config
-from .resolver import resolve_config
 
 __author__ = "Rohan B. Dalton"
 __all__ = (
@@ -22,7 +20,7 @@ __all__ = (
 def load(
     path: str | Path,
     *,
-    cache: Optional[Instances] = None,
+    cache: Instances | None = None,
     transient: bool = False,
 ) -> dict[str, Any]:
     """
@@ -37,14 +35,7 @@ def load(
     :returns: Resolved configuration mapping.
     :rtype: dict[str, Any]
     """
-    file_path = Path(path)
-    config = load_config(file_path)
-    return resolve_config(
-        config,
-        file_path=str(file_path),
-        cache=cache,
-        transient=transient,
-    )
+    return Artificery(path, cache=cache, transient=transient).resolve()
 
 
 if __name__ == "__main__":

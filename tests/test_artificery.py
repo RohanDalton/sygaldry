@@ -20,11 +20,11 @@ class Assembly:
 
 def test_artificery_raises_without_config_or_path():
     """
-    GIVEN: Neither file_path nor config provided.
+    GIVEN: Neither paths nor config provided.
     WHEN:  Constructing an Artificery instance.
     THEN:  A ValueError is raised.
     """
-    with pytest.raises(ValueError, match="requires file_path or config"):
+    with pytest.raises(ValueError, match="requires at least one path or a config dict"):
         Artificery()
 
 
@@ -56,7 +56,7 @@ def test_artificery_accepts_file_path(tmp_path):
         encoding="utf-8",
     )
 
-    resolved = Artificery(file_path=cfg).resolve()
+    resolved = Artificery(cfg).resolve()
 
     assert resolved["w"].name == "gear"
 
@@ -73,7 +73,7 @@ def test_artificery_accepts_string_path(tmp_path):
         encoding="utf-8",
     )
 
-    resolved = Artificery(file_path=str(cfg)).resolve()
+    resolved = Artificery(str(cfg)).resolve()
 
     assert resolved["w"].name == "cog"
 

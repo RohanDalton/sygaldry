@@ -19,7 +19,7 @@ It is the place where Sygaldry is used to create amazing objects.
    overview
    configuration
    loading
-   resolver
+   artificery
    caching
    api
    examples

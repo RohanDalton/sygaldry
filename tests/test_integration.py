@@ -71,7 +71,7 @@ def test_toml_end_to_end_includes_interpolation_refs(tmp_path):
         encoding="utf-8",
     )
 
-    resolved = Artificery(file_path=child).resolve()
+    resolved = Artificery(child).resolve()
 
     assert resolved["service"].db is resolved["db"]
     assert resolved["service"].url == "postgres://localhost:6000/app"

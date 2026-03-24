@@ -8,16 +8,17 @@ __author__ = "Rohan B. Dalton"
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from .errors import ConfigConflictError
 
 _NOT_FOUND = object()
 
 
-def _normalize_for_hash(value: Any, *, _memo: Optional[dict[int, str]] = None) -> Any:
+def _normalize_for_hash(value: Any, *, _memo: dict[int, str] | None = None) -> Any:
     """
     Normalize values into JSON-serializable structures for hashing.
 
@@ -107,14 +108,14 @@ class Instances:
         """
         Initialize an empty cache.
         """
-        self._entries: dict[tuple[str, Optional[str], Optional[str]], CacheEntry] = dict()
+        self._entries: dict[tuple[str, str | None, str | None], CacheEntry] = dict()
 
     @staticmethod
     def _cache_key(
         type_path: str,
-        instance: Optional[str],
-        spec_hash: Optional[str],
-    ) -> tuple[str, Optional[str], Optional[str]]:
+        instance: str | None,
+        spec_hash: str | None,
+    ) -> tuple[str, str | None, str | None]:
         if instance is None:
             return (type_path, None, spec_hash)
         return (type_path, instance, None)
@@ -122,11 +123,11 @@ class Instances:
     def get(
         self,
         type_path: str,
-        instance: Optional[str],
+        instance: str | None,
         *,
-        expected_hash: Optional[str] = None,
-        file_path: Optional[str] = None,
-        config_path: Optional[str] = None,
+        expected_hash: str | None = None,
+        file_path: str | None = None,
+        config_path: str | None = None,
     ) -> Any:
         """
         Return a cached instance if present.
@@ -166,12 +167,12 @@ class Instances:
     def set(
         self,
         type_path: str,
-        instance: Optional[str],
+        instance: str | None,
         value: Any,
         *,
         spec_hash: str,
-        file_path: Optional[str] = None,
-        config_path: Optional[str] = None,
+        file_path: str | None = None,
+        config_path: str | None = None,
     ) -> Any:
         """
         Insert or validate a cache entry.
@@ -206,14 +207,14 @@ class Instances:
     def get_or_create(
         self,
         type_path: str,
-        instance: Optional[str],
+        instance: str | None,
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
         factory: Callable[[], Any],
         *,
         transient: bool = False,
-        file_path: Optional[str] = None,
-        config_path: Optional[str] = None,
+        file_path: str | None = None,
+        config_path: str | None = None,
     ) -> Any:
         """
         Get or create a cached instance.

@@ -20,8 +20,8 @@ class SygaldryError(Exception):
     def __init__(
         self,
         message: str,
-        file_path: Optional[str] = None,
-        config_path: Optional[str] = None,
+        file_path: str | None = None,
+        config_path: str | None = None,
     ):
         super().__init__(message)
         self._message = message

@@ -62,6 +62,7 @@ ty = "*"
 
 [tool.pixi.feature.docs.dependencies]
 sphinx = "*"
+sphinx_rtd_theme = "*"
 
 [tool.pixi.environments]
 dev = ["test", "lint", "docs"]

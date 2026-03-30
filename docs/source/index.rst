@@ -19,10 +19,12 @@ It is the place where Sygaldry is used to create amazing objects.
    overview
    configuration
    loading
-   artificery
+   resolver
    caching
-   api
+   type-checking
+   cli
    examples
+   api
 
 
 

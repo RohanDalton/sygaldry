@@ -442,7 +442,7 @@ def validate(
 @click.option(
     "--type-checker",
     "type_checker",
-    type=click.Choice(["ty", "pyright", "mypy"]),
+    type=click.Choice(["ty", "basedpyright", "pyright", "mypy"]),
     default=None,
     help="Type checker to use (auto-detected if omitted).",
 )
@@ -495,7 +495,9 @@ def interactive(
     use_overrides: tuple[str, ...],
     verbose: bool,
 ) -> None:
-    """Start an interactive Python session with the Artificery loaded."""
+    """
+    Start an interactive Python session with the Artificery loaded.
+    """
     import code
 
     try:

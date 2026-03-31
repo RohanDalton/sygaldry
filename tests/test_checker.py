@@ -6,7 +6,7 @@ import pytest
 
 from sygaldry.checker import CheckError, _detect_type_checker, check
 
-_HAS_CHECKER = bool(shutil.which("ty") or shutil.which("pyright") or shutil.which("mypy"))
+_HAS_CHECKER = bool(shutil.which("ty") or shutil.which("basedpyright") or shutil.which("pyright") or shutil.which("mypy"))
 _skip_no_checker = pytest.mark.skipif(not _HAS_CHECKER, reason="No type checker available")
 
 
@@ -59,7 +59,7 @@ def test_detect_type_checker_returns_string():
     """
     if _HAS_CHECKER:
         name = _detect_type_checker()
-        assert name in ("ty", "pyright", "mypy")
+        assert name in ("ty", "basedpyright", "pyright", "mypy")
 
 
 @_skip_no_checker

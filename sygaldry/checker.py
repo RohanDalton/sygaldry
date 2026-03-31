@@ -15,7 +15,7 @@ from typing import Any, Optional
 from .codegen import SourceMapping, generate_check_source
 from .loader import load_config
 
-SUPPORTED_CHECKERS = ("ty", "pyright", "mypy")
+SUPPORTED_CHECKERS = ("ty", "basedpyright", "pyright", "mypy")
 
 
 @dataclass(frozen=True)
@@ -44,8 +44,8 @@ def check(
     via :func:`load_config`.
 
     :param path: Path to a YAML/TOML config file.
-    :param type_checker: Which checker to run (``ty``, ``pyright``, or
-        ``mypy``).  Auto-detected when *None*.
+    :param type_checker: Which checker to run (``ty``, ``basedpyright``,
+        ``pyright``, or ``mypy``).  Auto-detected when *None*.
     :param config: Pre-loaded config dict.
     :returns: List of type errors found.
     """
@@ -68,7 +68,7 @@ def _detect_type_checker() -> str:
     for name in SUPPORTED_CHECKERS:
         if shutil.which(name):
             return name
-    raise RuntimeError("No supported type checker found. Install ty, pyright, or mypy.")
+    raise RuntimeError("No supported type checker found. Install ty, basedpyright, pyright, or mypy.")
 
 
 def _run_and_parse(
@@ -90,9 +90,11 @@ def _run_and_parse(
 
 
 def _invoke_checker(checker: str, filepath: str) -> subprocess.CompletedProcess:
-    """Run the type checker subprocess."""
-    if checker == "pyright":
-        cmd = ["pyright", "--outputjson", filepath]
+    """
+    Run the type checker subprocess.
+    """
+    if checker in ("pyright", "basedpyright"):
+        cmd = [checker, "--outputjson", filepath]
     elif checker == "mypy":
         cmd = ["mypy", "--no-color-output", "--show-column-numbers", filepath]
     elif checker == "ty":
@@ -115,7 +117,7 @@ def _parse_output(
     """
     Parse type checker output into CheckError instances.
     """
-    if checker == "pyright":
+    if checker in ("pyright", "basedpyright"):
         return _parse_pyright(result, mappings)
     elif checker == "mypy":
         return _parse_mypy(result, mappings)

@@ -205,6 +205,50 @@ def test_interpolation_falls_back_to_env_when_not_in_config(tmp_path, monkeypatc
     assert config["url"] == "from_env"
 
 
+def test_dotted_keys_expand_to_nested_dicts(tmp_path):
+    """
+    GIVEN: A config with dotted top-level keys.
+    WHEN:  Loading the config.
+    THEN:  Dotted keys are expanded into nested dicts.
+    """
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "ftp_client:\n  host: null\n  port: 22\n"
+        "ftp_client.host: foo.com\n"
+        "ftp_client.port: 2222\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(cfg)
+
+    assert config["ftp_client"]["host"] == "foo.com"
+    assert config["ftp_client"]["port"] == 2222
+
+
+def test_dotted_keys_with_include(tmp_path):
+    """
+    GIVEN: A config that includes another and overrides via dotted keys.
+    WHEN:  Loading the config.
+    THEN:  Dotted keys override the included values.
+    """
+    base = tmp_path / "sftp.yaml"
+    base.write_text(
+        "ftp_client:\n  host: null\n  port: 22\n  timeout: 3600\n",
+        encoding="utf-8",
+    )
+    child = tmp_path / "vendor.yaml"
+    child.write_text(
+        "_include:\n  - sftp.yaml\nftp_client.host: foo.com\nftp_client.timeout: 100\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(child)
+
+    assert config["ftp_client"]["host"] == "foo.com"
+    assert config["ftp_client"]["port"] == 22
+    assert config["ftp_client"]["timeout"] == 100
+
+
 def test_circular_include_detection(tmp_path):
     """
     GIVEN: Two config files that include each other.

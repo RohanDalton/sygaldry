@@ -87,6 +87,7 @@ def _load_with_includes(
             data = _load_with_includes(include_path, child_ancestors, visited)
             merged = _deep_merge(merged, data)
 
+    raw = _expand_dotted_keys(raw)
     merged = _deep_merge(merged, raw)
     return merged
 
@@ -109,6 +110,33 @@ def _resolve_include(base: Path, include: Any) -> Path:
     if not candidate.is_absolute():
         candidate = base.parent / candidate
     return candidate
+
+
+def _expand_dotted_keys(data: dict[str, Any]) -> dict[str, Any]:
+    """
+    Expand top-level dotted keys into nested dicts.
+
+    For example, ``{"a.b.c": 1}`` becomes ``{"a": {"b": {"c": 1}}}``.
+
+    :param data: Raw config mapping.
+    :type data: dict[str, Any]
+    :returns: Mapping with dotted keys expanded.
+    :rtype: dict[str, Any]
+    """
+    result: dict[str, Any] = dict()
+    for key, value in data.items():
+        if "." not in key:
+            result[key] = value
+            continue
+        segments = key.split(".")
+        nested: dict[str, Any] = dict()
+        current = nested
+        for segment in segments[:-1]:
+            current[segment] = dict()
+            current = current[segment]
+        current[segments[-1]] = value
+        result = _deep_merge(result, nested)
+    return result
 
 
 def _load_file(path: Path) -> dict[str, Any]:

@@ -110,7 +110,7 @@ class ConfigAnalyzer:
         self._plains: list[PlainEntry] = list()
         self._imports: dict[str, tuple[str, str]] = dict()
         self._deps: dict[str, list[str]] = dict()
-        self._var_names: dict[str, str] = dict()
+        self._variable_names: dict[str, str] = dict()
         self._anon_counter = 0
         self._used_names: set[str] = set()
 
@@ -121,12 +121,13 @@ class ConfigAnalyzer:
         for key, value in self._config.items():
             self._analyze_top_level(key, value)
         order = self._topological_sort()
-        return AnalysisResult(
+        result = AnalysisResult(
             components=self._components,
             plains=self._plains,
             topological_order=order,
             imports=self._imports,
         )
+        return result
 
     def _alloc_name(self, preferred: str) -> str:
         """
@@ -157,8 +158,8 @@ class ConfigAnalyzer:
         """
         Analyze a single top-level config entry.
         """
-        var_name = self._alloc_name(key)
-        self._var_names[key] = var_name
+        variable_name = self._alloc_name(key)
+        self._variable_names[key] = variable_name
         self._deps[key] = list()
 
         if isinstance(value, dict):
@@ -169,27 +170,31 @@ class ConfigAnalyzer:
                 self._plains.append(
                     PlainEntry(
                         config_path=key,
-                        var_name=var_name,
+                        var_name=variable_name,
                         value=RefExpression(target=ref_target),
                     )
                 )
             elif "_type" in value:
-                self._analyze_type_entry(key, var_name, value)
+                self._analyze_type_entry(key, variable_name, value)
             elif "_func" in value:
-                self._analyze_func_entry(key, var_name, value)
+                self._analyze_func_entry(key, variable_name, value)
             elif value.get("_deep") is False:
-                self._plains.append(PlainEntry(config_path=key, var_name=var_name, value=...))
+                self._plains.append(
+                    PlainEntry(config_path=key, var_name=variable_name, value=...)
+                )
             elif "_entries" in value:
                 entries_expr = self._analyze_entries(value["_entries"], key, self._deps[key])
                 self._plains.append(
-                    PlainEntry(config_path=key, var_name=var_name, value=entries_expr)
+                    PlainEntry(config_path=key, var_name=variable_name, value=entries_expr)
                 )
             else:
                 self._plains.append(
-                    PlainEntry(config_path=key, var_name=var_name, value=value)
+                    PlainEntry(config_path=key, var_name=variable_name, value=value)
                 )
         else:
-            self._plains.append(PlainEntry(config_path=key, var_name=var_name, value=value))
+            self._plains.append(
+                PlainEntry(config_path=key, var_name=variable_name, value=value)
+            )
 
     def _analyze_type_entry(
         self, config_path: str, var_name: str, entry: dict[str, Any]
@@ -242,16 +247,15 @@ class ConfigAnalyzer:
         Analyze a _func entry.
         """
         import_path = value["_func"]
-        mod, name = _split_import_path(import_path)
-        self._imports[import_path] = (mod, name)
-        self._components.append(
-            ComponentEntry(
-                config_path=config_path,
-                var_name=var_name,
-                import_path=import_path,
-                is_func=True,
-            )
+        module, name = _split_import_path(import_path)
+        self._imports[import_path] = (module, name)
+        component = ComponentEntry(
+            config_path=config_path,
+            var_name=var_name,
+            import_path=import_path,
+            is_func=True,
         )
+        self._components.append(component)
 
     def _process_arg_value(self, value: Any, config_path: str, deps: list[str]) -> Any:
         """
@@ -309,7 +313,8 @@ class ConfigAnalyzer:
             value = self._process_arg_value(
                 entry.get("_value"), f"{config_path}.{idx}._value", deps
             )
-            items.append((key, value))
+            item = (key, value)
+            items.append(item)
         return EntriesExpression(items=items)
 
     def _topological_sort(self) -> list[str]:

@@ -15,6 +15,11 @@ from typing import Any, Optional
 from .codegen import SourceMapping, generate_check_source
 from .loader import load_config
 
+_MYPY_PATTERN = re.compile(
+    r"^.+?:(?P<line>\d+):\d+:\s*(?P<severity>error|warning|note):\s*(?P<message>.+?)(?:\s+\[.+\])?$"
+)
+_TY_LINE_PATTERN = re.compile(r"^\s*-->\s*.+?:(?P<line>\d+):\d+")
+_TY_DIAG_PATTERN = re.compile(r"^(?P<severity>error|warning)\[.+?\]:\s*(?P<message>.+)")
 SUPPORTED_CHECKERS = ("ty", "basedpyright", "pyright", "mypy")
 
 
@@ -82,20 +87,18 @@ def _run_and_parse(
     Write source to a temp file, run the checker, and parse results.
     """
     fd, tmp_path = tempfile.mkstemp(suffix=".py", prefix="_sygaldry_check_")
-    try:
-        with os.fdopen(fd, "w") as fh:
-            fh.write(source)
-        result = _invoke_checker(checker, tmp_path)
-        return _parse_output(checker, result, mappings)
-    finally:
-        os.unlink(tmp_path)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(source)
+    result = _invoke_checker(checker, tmp_path)
+    os.unlink(tmp_path)
+    return _parse_output(checker, result, mappings)
 
 
 def _invoke_checker(checker: str, filepath: str) -> subprocess.CompletedProcess:
     """
     Run the type checker subprocess.
     """
-    if checker in ("pyright", "basedpyright"):
+    if checker in {"pyright", "basedpyright"}:
         cmd = [checker, "--outputjson", filepath]
     elif checker == "mypy":
         cmd = ["mypy", "--no-color-output", "--show-column-numbers", filepath]
@@ -103,6 +106,7 @@ def _invoke_checker(checker: str, filepath: str) -> subprocess.CompletedProcess:
         cmd = ["ty", "check", filepath]
     else:
         raise ValueError(f"Unsupported type checker: {checker}")
+
     return subprocess.run(
         cmd,
         capture_output=True,
@@ -148,6 +152,7 @@ def _parse_pyright(
         data = json.loads(result.stdout)
     except (json.JSONDecodeError, ValueError):
         return errors
+
     for diag in data.get("generalDiagnostics", list()):
         line = diag.get("range", {}).get("start", {}).get("line", 0)
         # pyright uses 0-based lines
@@ -164,38 +169,27 @@ def _parse_pyright(
     return errors
 
 
-_MYPY_PATTERN = re.compile(
-    r"^.+?:(?P<line>\d+):\d+:\s*(?P<severity>error|warning|note):\s*(?P<message>.+?)(?:\s+\[.+\])?$"
-)
-
-
 def _parse_mypy(
     result: subprocess.CompletedProcess,
     mappings: list[SourceMapping],
 ) -> list[CheckError]:
     errors: list[CheckError] = list()
     for raw_line in result.stdout.splitlines():
-        match = _MYPY_PATTERN.match(raw_line)
-        if not match:
-            continue
-        line_no = int(match.group("line"))
-        severity = match.group("severity")
-        message = match.group("message")
-        if severity == "note":
-            continue
-        config_path = _line_to_config_path(line_no, mappings)
-        errors.append(
-            CheckError(
-                config_path=config_path,
-                message=message,
-                severity=severity,
+        if match := _MYPY_PATTERN.match(raw_line):
+            line_no = int(match.group("line"))
+            severity = match.group("severity")
+            message = match.group("message")
+            if severity == "note":
+                continue
+            config_path = _line_to_config_path(line_no, mappings)
+            errors.append(
+                CheckError(
+                    config_path=config_path,
+                    message=message,
+                    severity=severity,
+                )
             )
-        )
     return errors
-
-
-_TY_LINE_PATTERN = re.compile(r"^\s*-->\s*.+?:(?P<line>\d+):\d+")
-_TY_DIAG_PATTERN = re.compile(r"^(?P<severity>error|warning)\[.+?\]:\s*(?P<message>.+)")
 
 
 def _parse_ty(

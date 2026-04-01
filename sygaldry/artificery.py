@@ -139,9 +139,10 @@ def resolve_config(
     :returns: Resolved configuration mapping.
     :rtype: dict[str, Any]
     """
-    return Artificery(
-        config=config, source=file_path, cache=cache, transient=transient
-    ).resolve()
+
+    artificery = Artificery(config=config, source=file_path, cache=cache, transient=transient)
+    resolved = artificery.resolve()
+    return resolved
 
 
 class Artificery:
@@ -180,14 +181,18 @@ class Artificery:
         """
         if not paths and config is None:
             raise ValueError("Artificery requires at least one path or a config dict.")
-        self._paths = tuple(Path(path) for path in paths)
-        self._raw_config = config
-        self._source = source
-        self._overrides = overrides or dict()
-        self._uses = uses or dict()
+
+        self._active_config: dict[str, Any] = dict()
         self._cache = cache or Instances()
-        self._transient = transient
+        self._overrides = overrides or dict()
+        self._paths = tuple(Path(path) for path in paths)
         self._prepared: dict[str, Any] | None = None
+        self._raw_config = config
+        self._resolved_top: dict[str, Any] = dict()
+        self._resolving_top: list[str] = list()
+        self._source = source
+        self._uses = uses or dict()
+        self._transient = transient
 
     @property
     def config(self) -> dict[str, Any]:
@@ -197,7 +202,7 @@ class Artificery:
         :returns: Prepared configuration mapping.
         :rtype: dict[str, Any]
         """
-        if self._prepared is None:
+        if not self._prepared:
             self._prepared = self._prepare()
         return self._prepared
 
@@ -208,9 +213,10 @@ class Artificery:
         """
         if self._source is not None:
             return self._source
-        if self._paths:
+        elif self._paths:
             return str(self._paths[-1])
-        return None
+        else:
+            return None
 
     def _prepare(self) -> dict[str, Any]:
         """
@@ -226,9 +232,10 @@ class Artificery:
             merged = self._apply_uses(merged)
             merged = self._apply_overrides(merged)
             return _interpolate_config(merged, file_path=self._source_label)
-        if self._raw_config is not None:
+        elif self._raw_config is not None:
             return self._raw_config
-        raise ValueError("Artificery has no config source.")
+        else:
+            raise ValueError("Artificery has no config source.")
 
     def _load_and_merge(self) -> dict[str, Any]:
         """
@@ -312,21 +319,23 @@ class Artificery:
                     file_path=self._source_label,
                     config_path=".".join(path),
                 )
-            if "_type" in value and "_func" in value:
+            elif "_type" in value and "_func" in value:
                 raise ValidationError(
                     "_type and _func are mutually exclusive.",
                     file_path=self._source_label,
                     config_path=".".join(path),
                 )
-            if "_instance" in value and "_type" not in value:
+            elif "_instance" in value and "_type" not in value:
                 raise ValidationError(
                     "_instance is only valid with _type.",
                     file_path=self._source_label,
                     config_path=".".join(path),
                 )
+
             for key, child in value.items():
                 next_path = path + [str(key)]
                 self._validate_schema(child, path=next_path)
+
         elif isinstance(value, list) or isinstance(value, tuple):
             for idx, child in enumerate(value):
                 self._validate_schema(child, path=path + [str(idx)])
@@ -356,19 +365,18 @@ class Artificery:
             segments = ref_key.split(".")[1:]
             checked = top
             for segment in segments:
-                if not isinstance(current, dict):
+                if not isinstance(current, dict) or "_type" in current or "_func" in current:
                     break
-                if "_type" in current or "_func" in current:
-                    break
-                if segment not in current:
+                elif segment not in current:
                     raise ConfigReferenceError(
                         f"Reference target '{ref_key}' not found "
                         f"('{segment}' missing under '{checked}').",
                         file_path=self._source_label,
                         config_path=ref_path,
                     )
-                current = current[segment]
-                checked = f"{checked}.{segment}"
+                else:
+                    current = current[segment]
+                    checked = f"{checked}.{segment}"
 
     def _resolve_value(self, value: Any, *, path: list[str]) -> Any:
         """
@@ -383,17 +391,18 @@ class Artificery:
         """
         if isinstance(value, dict):
             return self._resolve_dict(value, path=path)
-        if isinstance(value, list):
+        elif isinstance(value, list):
             return [
                 self._resolve_value(item, path=path + [str(idx)])
                 for idx, item in enumerate(value)
             ]
-        if isinstance(value, tuple):
+        elif isinstance(value, tuple):
             return tuple(
                 self._resolve_value(item, path=path + [str(idx)])
                 for idx, item in enumerate(value)
             )
-        return value
+        else:
+            return value
 
     def _resolve_dict(self, value: dict[str, Any], *, path: list[str]) -> Any:
         """
@@ -408,19 +417,19 @@ class Artificery:
         """
         if "_ref" in value:
             return self._resolve_ref(value["_ref"], path)
-        if "_type" in value:
+        elif "_type" in value:
             return self._resolve_type(value, path)
-        if "_func" in value:
+        elif "_func" in value:
             return self._resolve_func(value, path)
-        if value.get("_deep") is False:
+        elif value.get("_deep") is False:
             return {k: v for k, v in value.items() if k != "_deep"}
-        if "_entries" in value:
+        elif "_entries" in value:
             return self._resolve_entries(value, path)
-
-        resolved: dict[str, Any] = dict()
-        for key, child in value.items():
-            resolved[key] = self._resolve_value(child, path=path + [str(key)])
-        return resolved
+        else:
+            resolved: dict[str, Any] = dict()
+            for key, child in value.items():
+                resolved[key] = self._resolve_value(child, path=path + [str(key)])
+            return resolved
 
     def _resolve_ref(self, ref: Any, path: list[str]) -> Any:
         """
@@ -440,19 +449,20 @@ class Artificery:
                 file_path=self._source_label,
                 config_path=".".join(path),
             )
-        top, _, remainder = ref.partition(".")
-        target = self._resolve_top_level(top, path)
-        if remainder:
-            for attr in remainder.split("."):
-                try:
-                    target = getattr(target, attr)
-                except AttributeError as exc:
-                    raise ConfigReferenceError(
-                        f"Attribute '{attr}' not found on reference '{top}'.",
-                        file_path=self._source_label,
-                        config_path=".".join(path),
-                    ) from exc
-        return target
+        else:
+            top, _, remainder = ref.partition(".")
+            target = self._resolve_top_level(top, path)
+            if remainder:
+                for attr in remainder.split("."):
+                    try:
+                        target = getattr(target, attr)
+                    except AttributeError as exc:
+                        raise ConfigReferenceError(
+                            f"Attribute '{attr}' not found on reference '{top}'.",
+                            file_path=self._source_label,
+                            config_path=".".join(path),
+                        ) from exc
+            return target
 
     def _resolve_top_level(self, key: str, path: list[str]) -> Any:
         """
@@ -468,24 +478,25 @@ class Artificery:
         """
         if key in self._resolved_top:
             return self._resolved_top[key]
-        if key in self._resolving_top:
+        elif key in self._resolving_top:
             chain = " -> ".join(self._resolving_top + [key])
             raise CircularReferenceError(
                 f"Circular reference detected: {chain}",
                 file_path=self._source_label,
                 config_path=".".join(path),
             )
-        if key not in self._active_config:
+        elif key not in self._active_config:
             raise ConfigReferenceError(
                 f"Reference target '{key}' not found.",
                 file_path=self._source_label,
                 config_path=".".join(path),
             )
-        self._resolving_top.append(key)
-        resolved = self._resolve_value(self._active_config[key], path=[key])
-        self._resolving_top.pop()
-        self._resolved_top[key] = resolved
-        return resolved
+        else:
+            self._resolving_top.append(key)
+            resolved = self._resolve_value(self._active_config[key], path=[key])
+            self._resolving_top.pop()
+            self._resolved_top[key] = resolved
+            return resolved
 
     def _resolve_entries(self, value: dict[str, Any], path: list[str]) -> dict[Any, Any]:
         """
@@ -506,38 +517,41 @@ class Artificery:
                 file_path=self._source_label,
                 config_path=".".join(path),
             )
-        if len(value.keys() - {"_entries"}) != 0:
+        elif len(value.keys() - {"_entries"}) != 0:
             raise ResolutionError(
                 "_entries cannot be combined with other keys.",
                 file_path=self._source_label,
                 config_path=".".join(path),
             )
-        resolved: dict[Any, Any] = dict()
-        for idx, entry in enumerate(entries):
-            if not isinstance(entry, dict) or "_key" not in entry or "_value" not in entry:
-                raise ResolutionError(
-                    "Each _entries item must contain _key and _value.",
-                    file_path=self._source_label,
-                    config_path=".".join(path + [str(idx)]),
-                )
-            key = self._resolve_value(entry["_key"], path=path + [str(idx), "_key"])
-            val = self._resolve_value(entry["_value"], path=path + [str(idx), "_value"])
-            try:
-                hash(key)
-            except Exception as exc:
-                raise ResolutionError(
-                    "Resolved _entries keys must be hashable.",
-                    file_path=self._source_label,
-                    config_path=".".join(path + [str(idx), "_key"]),
-                ) from exc
-            if key in resolved:
-                raise ResolutionError(
-                    f"Duplicate _entries key '{key}'.",
-                    file_path=self._source_label,
-                    config_path=".".join(path + [str(idx), "_key"]),
-                )
-            resolved[key] = val
-        return resolved
+        else:
+            resolved: dict[Any, Any] = dict()
+            for idx, entry in enumerate(entries):
+                if not isinstance(entry, dict) or "_key" not in entry or "_value" not in entry:
+                    raise ResolutionError(
+                        "Each _entries item must contain _key and _value.",
+                        file_path=self._source_label,
+                        config_path=".".join(path + [str(idx)]),
+                    )
+                key = self._resolve_value(entry["_key"], path=path + [str(idx), "_key"])
+                val = self._resolve_value(entry["_value"], path=path + [str(idx), "_value"])
+                try:
+                    hash(key)
+                except Exception as exc:
+                    raise ResolutionError(
+                        "Resolved _entries keys must be hashable.",
+                        file_path=self._source_label,
+                        config_path=".".join(path + [str(idx), "_key"]),
+                    ) from exc
+
+                if key in resolved:
+                    raise ResolutionError(
+                        f"Duplicate _entries key '{key}'.",
+                        file_path=self._source_label,
+                        config_path=".".join(path + [str(idx), "_key"]),
+                    )
+                else:
+                    resolved[key] = val
+            return resolved
 
     def _resolve_func(self, value: dict[str, Any], path: list[str]) -> Any:
         """
@@ -558,15 +572,16 @@ class Artificery:
                 file_path=self._source_label,
                 config_path=".".join(path),
             )
-        func_path = value.get("_func")
-        try:
-            return import_dotted_path(
-                func_path,
-                file_path=self._source_label,
-                config_path=".".join(path),
-            )
-        except ImportResolutionError:
-            raise
+        else:
+            func_path = value.get("_func")
+            try:
+                return import_dotted_path(
+                    func_path,
+                    file_path=self._source_label,
+                    config_path=".".join(path),
+                )
+            except ImportResolutionError:
+                raise
 
     def _resolve_type(self, value: dict[str, Any], path: list[str]) -> Any:
         """
@@ -589,49 +604,48 @@ class Artificery:
                 file_path=self._source_label,
                 config_path=".".join(path),
             )
-        if not isinstance(extra_kwargs, dict):
+        elif not isinstance(extra_kwargs, dict):
             raise ResolutionError(
                 "_kwargs must be a mapping.",
                 file_path=self._source_label,
                 config_path=".".join(path),
             )
+        else:
+            kwargs = {k: v for k, v in value.items() if k not in RESERVED_KEYS}
+            resolved_args = tuple(
+                self._resolve_value(arg, path=path + ["_args"]) for arg in args
+            )
+            resolved_kwargs = {
+                key: self._resolve_value(val, path=path + [key]) for key, val in kwargs.items()
+            }
+            for key, val in extra_kwargs.items():
+                resolved_kwargs[key] = self._resolve_value(val, path=path + ["_kwargs", key])
 
-        kwargs = {k: v for k, v in value.items() if k not in RESERVED_KEYS}
-        resolved_args = tuple(self._resolve_value(arg, path=path + ["_args"]) for arg in args)
-        resolved_kwargs = {
-            key: self._resolve_value(val, path=path + [key]) for key, val in kwargs.items()
-        }
-        for key, val in extra_kwargs.items():
-            resolved_kwargs[key] = self._resolve_value(val, path=path + ["_kwargs", key])
-
-        try:
             target = import_dotted_path(
                 type_path,
                 file_path=self._source_label,
                 config_path=".".join(path),
             )
-        except ImportResolutionError:
-            raise
 
-        resolved_kwargs = _validate_signature(
-            target,
-            resolved_args,
-            resolved_kwargs,
-            file_path=self._source_label,
-            config_path=".".join(path),
-        )
+            resolved_kwargs = _validate_signature(
+                target,
+                resolved_args,
+                resolved_kwargs,
+                file_path=self._source_label,
+                config_path=".".join(path),
+            )
 
-        def factory() -> Any:
-            try:
-                return target(*resolved_args, **resolved_kwargs)
-            except Exception as exc:  # noqa: BLE001
-                raise ConstructorError(
-                    f"Failed to construct '{type_path}'.",
-                    file_path=self._source_label,
-                    config_path=".".join(path),
-                ) from exc
+            def factory() -> Any:
+                try:
+                    return target(*resolved_args, **resolved_kwargs)
+                except Exception as exc:  # noqa: BLE001
+                    raise ConstructorError(
+                        f"Failed to construct '{type_path}'.",
+                        file_path=self._source_label,
+                        config_path=".".join(path),
+                    ) from exc
 
-        return self._cache.get_or_create(
+        instance = self._cache.get_or_create(
             type_path,
             instance,
             resolved_args,
@@ -641,6 +655,7 @@ class Artificery:
             file_path=self._source_label,
             config_path=".".join(path),
         )
+        return instance
 
 
 def _collect_refs(value: Any, *, path: list[str] | None = None) -> Iterable[tuple[str, str]]:
@@ -659,8 +674,9 @@ def _collect_refs(value: Any, *, path: list[str] | None = None) -> Iterable[tupl
         if "_ref" in value:
             yield ".".join(path), value["_ref"]
             return
-        for key, child in value.items():
-            yield from _collect_refs(child, path=path + [str(key)])
+        else:
+            for key, child in value.items():
+                yield from _collect_refs(child, path=path + [str(key)])
     elif isinstance(value, list) or isinstance(value, tuple):
         for idx, child in enumerate(value):
             yield from _collect_refs(child, path=path + [str(idx)])
@@ -723,11 +739,9 @@ def _validate_signature(
 
     missing = list()
     for name, param in signature.parameters.items():
-        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD) or param.default is not param.empty:
             continue
-        if param.default is not param.empty:
-            continue
-        if name not in bound.arguments:
+        elif name not in bound.arguments:
             missing.append(name)
 
     if missing:

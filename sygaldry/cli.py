@@ -150,18 +150,21 @@ def _invoke_target(obj: Any, method_name: str | None, args: list[Any]) -> Any:
                 f"Object {type(obj).__name__!r} has no method '{method_name}'. "
                 f"Available attributes: {sorted(a for a in dir(obj) if not a.startswith('_'))}"
             )
-        target = getattr(obj, method_name)
-        if not callable(target):
+        else:
+            target = getattr(obj, method_name)
+            if not callable(target):
+                raise CLIError(
+                    f"Attribute '{method_name}' on {type(obj).__name__!r} is not callable."
+                )
+            else:
+                return target(*args)
+    else:
+        if not callable(obj):
             raise CLIError(
-                f"Attribute '{method_name}' on {type(obj).__name__!r} is not callable."
+                f"Object {type(obj).__name__!r} is not callable and no --method was specified."
             )
-        return target(*args)
 
-    if not callable(obj):
-        raise CLIError(
-            f"Object {type(obj).__name__!r} is not callable and no --method was specified."
-        )
-    return obj(*args)
+        return obj(*args)
 
 
 def _format_config_yaml(config: Any) -> str:
@@ -299,8 +302,8 @@ def run(
                     f"Object '{object_key}' not found in resolved config. "
                     f"Available keys: {available}"
                 )
-            target = resolved[object_key]
 
+            target = resolved[object_key]
             result = _invoke_target(target, final_method, final_args)
 
             if isinstance(result, int):

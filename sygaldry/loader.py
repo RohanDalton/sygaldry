@@ -1,7 +1,3 @@
-"""
-Config loading with includes, deep merge, and interpolation.
-"""
-
 from __future__ import annotations
 
 __author__ = "Rohan B. Dalton"
@@ -11,6 +7,8 @@ import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Optional
+
+import yaml
 
 from .errors import (
     CircularIncludeError,
@@ -24,6 +22,8 @@ try:
     import tomllib  # type: ignore
 except ImportError:  # pragma: no cover - fallback only
     import tomli as tomllib  # type: ignore
+
+_MISSING = object()
 
 _INTEGER_RE = re.compile(r"^(?P<integer>[-+]?\d+)$")
 _FLOAT_RE = re.compile(r"^(?P<float>[-+]?\d*\.\d+(?:[eE][-+]?\d+)?)$")
@@ -155,23 +155,12 @@ def _load_file(path: Path) -> dict[str, Any]:
     except Exception as exc:
         raise ParseError(f"Failed to read config file: {path}", file_path=str(path)) from exc
 
-    try:
-        if suffix in {".yaml", ".yml"}:
-            try:
-                import yaml  # type: ignore
-            except Exception as exc:  # pragma: no cover - import guard
-                raise ParseError(
-                    "PyYAML is required to parse YAML files.", file_path=str(path)
-                ) from exc
-            data = yaml.safe_load(content) or dict()
-        elif suffix == ".toml":
-            data = tomllib.loads(content) or dict()
-        else:
-            raise ParseError(f"Unsupported config format: {suffix}", file_path=str(path))
-    except ParseError:
-        raise
-    except Exception as exc:
-        raise ParseError(f"Failed to parse config file: {path}", file_path=str(path)) from exc
+    if suffix in {".yaml", ".yml"}:
+        data = yaml.safe_load(content) or dict()
+    elif suffix == ".toml":
+        data = tomllib.loads(content) or dict()
+    else:
+        raise ParseError(f"Unsupported config format: {suffix}", file_path=str(path))
 
     if not isinstance(data, dict):
         raise ParseError("Top-level config must be a mapping.", file_path=str(path))
@@ -244,20 +233,25 @@ class _InterpolationResolver:
         :rtype: object
         """
         if isinstance(value, dict):
-            return self._resolve_dict(value, path)
-        if isinstance(value, list):
-            return [
+            resolved = self._resolve_dict(value, path)
+            return resolved
+        elif isinstance(value, list):
+            resolved = [
                 self.resolve_value(item, path=path + [str(idx)])
                 for idx, item in enumerate(value)
             ]
-        if isinstance(value, tuple):
-            return tuple(
+            return resolved
+        elif isinstance(value, tuple):
+            resolved = tuple(
                 self.resolve_value(item, path=path + [str(idx)])
                 for idx, item in enumerate(value)
             )
-        if isinstance(value, str):
-            return self._interpolate_string(value, path)
-        return value
+            return resolved
+        elif isinstance(value, str):
+            interpolated = self._interpolate_string(value, path)
+            return interpolated
+        else:
+            return value
 
     def _resolve_dict(self, value: dict[str, Any], path: list[str]) -> dict[str, Any]:
         """
@@ -337,15 +331,14 @@ class _InterpolationResolver:
         """
         parts: list[tuple[str, str]] = list()
         idx = 0
-        has_token = False
-        has_text = False
+        has_token = has_text = False
         while idx < len(value):
             if value.startswith("$${", idx):
                 parts.append(("text", "${"))
                 has_text = True
                 idx += 3
                 continue
-            if value.startswith("${", idx):
+            elif value.startswith("${", idx):
                 has_token = True
                 idx += 2
                 depth = 1
@@ -355,31 +348,36 @@ class _InterpolationResolver:
                         buffer.append("${")
                         idx += 3
                         continue
-                    if value.startswith("${", idx):
+                    elif value.startswith("${", idx):
                         depth += 1
                         buffer.append("${")
                         idx += 2
                         continue
-                    if value[idx] == "}":
+                    elif value[idx] == "}":
                         depth -= 1
                         idx += 1
                         if depth == 0:
                             break
                         buffer.append("}")
                         continue
-                    buffer.append(value[idx])
-                    idx += 1
+                    else:
+                        buffer.append(value[idx])
+                        idx += 1
+
                 if depth != 0:
                     raise InterpolationError(
                         "Unterminated interpolation.",
                         file_path=self._file_path,
                         config_path=".".join(path),
                     )
-                parts.append(("token", "".join(buffer)))
-                continue
-            parts.append(("text", value[idx]))
-            has_text = True
-            idx += 1
+                else:
+                    parts.append(("token", "".join(buffer)))
+                    continue
+            else:
+                parts.append(("text", value[idx]))
+                has_text = True
+                idx += 1
+
         return parts, has_token, has_text
 
     def _resolve_placeholder(self, token: str, path: list[str]) -> Any:
@@ -410,19 +408,16 @@ class _InterpolationResolver:
         config_value = _get_by_path(self._raw, key)
         if config_value is not _MISSING:
             return self._resolve_config_path(key, path)
-
-        env_value = os.environ.get(key)
-        if env_value is not None:
+        elif (env_value := os.environ.get(key)) is not None:
             return env_value
-
-        if default is not None:
+        elif default is not None:
             return self._interpolate_string(default, path)
-
-        raise InterpolationError(
-            f"Interpolation target '{key}' not found in config or environment.",
-            file_path=self._file_path,
-            config_path=".".join(path),
-        )
+        else:
+            raise InterpolationError(
+                f"Interpolation target '{key}' not found in config or environment.",
+                file_path=self._file_path,
+                config_path=".".join(path),
+            )
 
     def _resolve_config_path(self, key: str, path: list[str]) -> Any:
         """
@@ -439,12 +434,13 @@ class _InterpolationResolver:
         dotted = key
         if dotted in self._cache:
             return self._cache[dotted]
-        if dotted in self._visiting:
+        elif dotted in self._visiting:
             raise CircularInterpolationError(
                 f"Circular interpolation detected for '{dotted}'.",
                 file_path=self._file_path,
                 config_path=".".join(path),
             )
+
         raw_value = _get_by_path(self._raw, dotted)
         if raw_value is _MISSING:
             raise InterpolationError(
@@ -452,14 +448,12 @@ class _InterpolationResolver:
                 file_path=self._file_path,
                 config_path=".".join(path),
             )
-        self._visiting.append(dotted)
-        resolved = self.resolve_value(raw_value, path=dotted.split("."))
-        self._visiting.pop()
-        self._cache[dotted] = resolved
-        return resolved
-
-
-_MISSING = object()
+        else:
+            self._visiting.append(dotted)
+            resolved = self.resolve_value(raw_value, path=dotted.split("."))
+            self._visiting.pop()
+            self._cache[dotted] = resolved
+            return resolved
 
 
 def _get_by_path(data: Any, dotted: str) -> Any:
@@ -476,21 +470,25 @@ def _get_by_path(data: Any, dotted: str) -> Any:
     current = data
     if dotted == "":
         return _MISSING
-    for segment in dotted.split("."):
-        if isinstance(current, dict):
-            if segment not in current:
+    else:
+        for segment in dotted.split("."):
+            if isinstance(current, dict):
+                if segment not in current:
+                    return _MISSING
+                else:
+                    current = current[segment]
+            elif isinstance(current, list):
+                if not segment.isdigit():
+                    return _MISSING
+                else:
+                    idx = int(segment)
+                    if idx < 0 or idx >= len(current):
+                        return _MISSING
+                    else:
+                        current = current[idx]
+            else:
                 return _MISSING
-            current = current[segment]
-        elif isinstance(current, list):
-            if not segment.isdigit():
-                return _MISSING
-            idx = int(segment)
-            if idx < 0 or idx >= len(current):
-                return _MISSING
-            current = current[idx]
-        else:
-            return _MISSING
-    return current
+        return current
 
 
 def _infer_scalar(value: str) -> Any:
@@ -505,17 +503,24 @@ def _infer_scalar(value: str) -> Any:
     lowered = value.strip().lower()
     if lowered in {"true", "false"}:
         return lowered == "true"
-    if lowered in {"null", "none"}:
+    elif lowered in {"null", "none"}:
         return None
-    try:
-        stripped = value.strip()
-        if _INTEGER_RE.match(stripped):
-            return int(stripped)
-        if _FLOAT_RE.match(stripped) or _SCI_INT_RE.match(stripped):
-            return float(stripped)
-    except Exception:
+
+    stripped = value.strip()
+    if _INTEGER_RE.match(stripped):
+        func = int
+    elif _FLOAT_RE.match(stripped) or _SCI_INT_RE.match(stripped):
+        func = float
+    else:
+        func = None
+
+    if func is not None:
+        try:
+            return func(value)
+        except (TypeError, ValueError):
+            return value
+    else:
         return value
-    return value
 
 
 if __name__ == "__main__":

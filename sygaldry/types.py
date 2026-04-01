@@ -1,7 +1,3 @@
-"""
-Shared constants and import helpers.
-"""
-
 from __future__ import annotations
 
 __author__ = "Rohan B. Dalton"
@@ -63,11 +59,11 @@ def import_dotted_path(
         candidate = ".".join(parts[:idx])
         try:
             module = importlib.import_module(candidate)
-            module_path = candidate
-            attr_parts = parts[idx:]
         except Exception:
             continue
         else:
+            module_path = candidate
+            attributes = parts[idx:]
             break
 
     if module is None or module_path is None:
@@ -76,19 +72,19 @@ def import_dotted_path(
             file_path=file_path,
             config_path=config_path,
         )
+    else:
+        target: object = module
+        for attribute in attributes:
+            try:
+                target = getattr(target, attribute)
+            except AttributeError as exc:
+                raise ImportResolutionError(
+                    f"Failed to resolve attribute '{attribute}' from '{module_path}' for dotted path '{dotted_path}'.",
+                    file_path=file_path,
+                    config_path=config_path,
+                ) from exc
 
-    target: object = module
-    for attr in attr_parts:
-        try:
-            target = getattr(target, attr)
-        except AttributeError as exc:
-            raise ImportResolutionError(
-                f"Failed to resolve attribute '{attr}' from '{module_path}' for dotted path '{dotted_path}'.",
-                file_path=file_path,
-                config_path=config_path,
-            ) from exc
-
-    return target
+        return target
 
 
 if __name__ == "__main__":

@@ -40,9 +40,10 @@ def _normalize_for_hash(value: Any, *, _memo: dict[int, str] | None = None) -> A
     elif isinstance(value, dict):
         entries = list()
         for key, val in value.items():
-            norm_key = _normalize_for_hash(key, _memo=_memo)
-            norm_val = _normalize_for_hash(val, _memo=_memo)
-            entries.append((norm_key, norm_val))
+            normalized_key = _normalize_for_hash(key, _memo=_memo)
+            normalized_value = _normalize_for_hash(val, _memo=_memo)
+            entries.append((normalized_key, normalized_value))
+
         entries.sort(
             key=lambda pair: json.dumps(
                 pair[0],
@@ -52,6 +53,7 @@ def _normalize_for_hash(value: Any, *, _memo: dict[int, str] | None = None) -> A
             )
         )
         return {"__dict__": [[key, value] for key, value in entries]}
+
     elif isinstance(value, set):
         items = [_normalize_for_hash(item, _memo=_memo) for item in value]
         items.sort(
@@ -64,11 +66,13 @@ def _normalize_for_hash(value: Any, *, _memo: dict[int, str] | None = None) -> A
         )
         return {"__set__": items}
     else:
-        obj_id = id(value)
-        token = _memo.get(obj_id)
+        object_id = id(value)
+        token = _memo.get(object_id)
         if token is None:
-            token = f"{value.__class__.__module__}.{value.__class__.__qualname__}@{obj_id}"
-            _memo[obj_id] = token
+            module = value.__class__.__module__
+            name = value.__class__.__qualname__
+            token = f"{module}.{name}@{object_id}"
+            _memo[object_id] = token
         return {"__object__": token}
 
 
@@ -117,8 +121,8 @@ class Instances:
         spec_hash: str | None,
     ) -> tuple[str, str | None, str | None]:
         if instance is None:
-            return (type_path, None, spec_hash)
-        return (type_path, instance, None)
+            return type_path, None, spec_hash
+        return type_path, instance, None
 
     def get(
         self,

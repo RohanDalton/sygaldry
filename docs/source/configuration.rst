@@ -14,6 +14,11 @@ Reserved keys
 ``_args`` (list)
   Positional arguments for the constructor.
 
+``_kwargs`` (dict)
+  Extra keyword arguments for the constructor. Useful for passing arguments
+  to functions that accept ``**kwargs``, especially when the key names
+  conflict with reserved keys.
+
 ``_instance`` (str)
   Instance tag used to disambiguate cache entries. If omitted, caching
   is keyed by the constructor spec hash instead.
@@ -26,7 +31,8 @@ Reserved keys
   The ``_deep`` key itself is stripped from the returned mapping.
 
 ``_include`` (list)
-  Include other config files at load time.
+  Include other config files at load time. Included files are loaded
+  and deep-merged before the current file's own keys.
 
 ``_entries`` (list)
   Use to define dict keys that are dynamically resolved.
@@ -109,3 +115,54 @@ If a dict key needs to be resolved (including references), use ``_entries``:
      _entries:
        - _key: { _ref: "some.key" }
          _value: 123
+
+Extra keyword arguments
+=======================
+
+Use ``_kwargs`` to pass a mapping of keyword arguments to constructors that
+accept ``**kwargs``:
+
+.. code-block:: yaml
+
+   handler:
+     _type: "myapp.handlers.FlexibleHandler"
+     name: "main"
+     _kwargs:
+       color: "red"
+       size: 42
+
+This is equivalent to calling
+``FlexibleHandler(name="main", color="red", size=42)``.
+
+``_kwargs`` entries are merged with any non-reserved keys on the same mapping.
+This is useful when a keyword argument name would collide with a reserved key
+like ``_type`` or ``_ref``.
+
+Dotted key overrides
+====================
+
+Top-level keys containing dots are expanded into nested dicts before merging.
+This provides a compact way to override deeply nested values, especially
+in combination with ``_include``:
+
+.. code-block:: yaml
+
+   # sftp.yaml
+   ftp_client:
+     host: null
+     port: 22
+     password: "correct-horse-battery-staple"
+     timeout: 3600
+
+.. code-block:: yaml
+
+   # vendor.yaml
+   _include:
+     - sftp.yaml
+
+   ftp_client.host: "foo.com"
+   ftp_client.timeout: 100
+
+After loading ``vendor.yaml``, ``ftp_client.host`` is ``"foo.com"``,
+``ftp_client.timeout`` is ``100``, and the remaining keys (``port``,
+``password``) are inherited from ``sftp.yaml``.

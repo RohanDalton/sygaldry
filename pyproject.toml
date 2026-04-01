@@ -38,6 +38,9 @@ path = "sygaldry/__version__.py"
 [tool.pytest.ini_options]
 addopts = "--cov=sygaldry --cov-branch --cov-report=term-missing --cov-report=html:coverage"
 testpaths = "tests"
+filterwarnings = [
+    "ignore::ResourceWarning",
+]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]

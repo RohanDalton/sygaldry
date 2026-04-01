@@ -56,7 +56,6 @@ def test_cache_handles_none_return_value():
     def factory():
         nonlocal call_count
         call_count += 1
-        return None
 
     first = cache.get_or_create("demo.Type", "singleton", (), {}, factory)
     second = cache.get_or_create("demo.Type", "singleton", (), {}, factory)

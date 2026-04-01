@@ -246,6 +246,26 @@ def test_analyzer_type_with_args():
     assert comp.args == [1, 2, 3]
 
 
+def test_analyzer_type_with_kwargs():
+    """
+    GIVEN: A config with _type and _kwargs.
+    WHEN:  Analyzing the config.
+    THEN:  The _kwargs entries are merged into the component kwargs.
+    """
+    config = {
+        "obj": {
+            "_type": "myapp.Flexible",
+            "name": "test",
+            "_kwargs": {"color": "red", "size": 42},
+        }
+    }
+    result = ConfigAnalyzer(config).analyze()
+    comp = result.components[0]
+    assert comp.kwargs["name"] == "test"
+    assert comp.kwargs["color"] == "red"
+    assert comp.kwargs["size"] == 42
+
+
 def test_analyzer_call_ignored():
     """
     GIVEN: A config with a _call directive.
@@ -455,6 +475,19 @@ def test_codegen_type_with_args():
     """
     source = _source_for({"point": {"_type": "myapp.Point", "_args": [1, 2], "label": "p"}})
     assert "point: Point = Point(1, 2, label='p')" in source
+
+
+def test_codegen_type_with_kwargs():
+    """
+    GIVEN: A config with _type and _kwargs.
+    WHEN:  Generating source code.
+    THEN:  The _kwargs entries appear as keyword args in the constructor call.
+    """
+    source = _source_for(
+        {"obj": {"_type": "myapp.Flexible", "name": "test", "_kwargs": {"color": "red"}}}
+    )
+    assert "name='test'" in source
+    assert "color='red'" in source
 
 
 def test_codegen_import_deduplication():

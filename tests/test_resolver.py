@@ -4,18 +4,25 @@ import math
 
 import pytest
 
+from sygaldry.artificery import resolve_config
 from sygaldry.errors import (
     CircularReferenceError,
     ConfigReferenceError,
+    ResolutionError,
     ValidationError,
 )
-from sygaldry.artificery import resolve_config
 
 
 class Demo:
     def __init__(self, value, *, scale=1):
         self.value = value
         self.scale = scale
+
+
+class Flexible:
+    def __init__(self, name, **kwargs):
+        self.name = name
+        self.extra = kwargs
 
 
 def test_resolve_type_and_ref():
@@ -137,6 +144,64 @@ def test_func_extra_keys_raises():
     config = {"fn": {"_func": "os.path.join", "extra": "oops"}}
 
     with pytest.raises(ValidationError, match="extra"):
+        resolve_config(config)
+
+
+def test_kwargs_passed_to_constructor():
+    """
+    GIVEN: A config with _type and _kwargs.
+    WHEN:  Resolving the config.
+    THEN:  The _kwargs entries are passed as keyword arguments to the constructor.
+    """
+    config = {
+        "obj": {
+            "_type": "tests.test_resolver.Flexible",
+            "name": "test",
+            "_kwargs": {"color": "red", "size": 42},
+        }
+    }
+
+    resolved = resolve_config(config)
+
+    assert resolved["obj"].name == "test"
+    assert resolved["obj"].extra == {"color": "red", "size": 42}
+
+
+def test_kwargs_with_refs():
+    """
+    GIVEN: A config with _kwargs containing _ref values.
+    WHEN:  Resolving the config.
+    THEN:  References inside _kwargs are resolved.
+    """
+    config = {
+        "base": {"_type": "tests.test_resolver.Demo", "_args": [10]},
+        "obj": {
+            "_type": "tests.test_resolver.Flexible",
+            "name": "test",
+            "_kwargs": {"dep": {"_ref": "base"}},
+        },
+    }
+
+    resolved = resolve_config(config)
+
+    assert resolved["obj"].extra["dep"] is resolved["base"]
+
+
+def test_kwargs_must_be_mapping():
+    """
+    GIVEN: A config with _kwargs set to a non-dict.
+    WHEN:  Resolving the config.
+    THEN:  A ResolutionError is raised.
+    """
+    config = {
+        "obj": {
+            "_type": "tests.test_resolver.Flexible",
+            "name": "test",
+            "_kwargs": [1, 2, 3],
+        }
+    }
+
+    with pytest.raises(ResolutionError, match="_kwargs must be a mapping"):
         resolve_config(config)
 
 

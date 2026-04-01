@@ -218,6 +218,13 @@ class ConfigAnalyzer:
             )
             kwargs[key] = processed
 
+        raw_kwargs = entry.get("_kwargs", {})
+        for key, value in raw_kwargs.items():
+            processed = self._process_arg_value(
+                value, f"{config_path}._kwargs.{key}", self._deps.setdefault(config_path, [])
+            )
+            kwargs[key] = processed
+
         self._components.append(
             ComponentEntry(
                 config_path=config_path,

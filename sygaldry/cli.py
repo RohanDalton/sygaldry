@@ -2,6 +2,7 @@ from __future__ import annotations
 
 __author__ = "Rohan B. Dalton"
 
+import code
 import json
 from pathlib import Path
 from typing import Any, Optional
@@ -481,8 +482,6 @@ def interactive(
     """
     Start an interactive Python session with the Artificery loaded.
     """
-    import code
-
     try:
         art = _build_artificery(config_paths, set_overrides, use_overrides)
         # Eagerly prepare the config so errors surface before the REPL starts.
@@ -498,26 +497,31 @@ def interactive(
             _console.print(f"[bold red]Error:[/bold red] {exc}")
         raise SystemExit(1) from None
 
-    banner_lines = [
-        "Sygaldry interactive session",
-        "",
-        "Available variables:",
-        "  artificery  - Artificery instance (config loaded & merged)",
-        "",
-        "Quick start:",
-        "  artificery.config        # view the interpolated config",
-        "  artificery.resolve()     # resolve all objects",
-        "",
-    ]
-    banner = "\n".join(banner_lines)
-    _console.print(f"[bold green]{banner_lines[0]}[/bold green]")
+    _console.print("[bold green]Sygaldry interactive session[/bold green]")
     _console.print()
     _console.print("  Config files: " + ", ".join(str(p) for p in config_paths))
     _console.print(f"  Top-level keys: {sorted(art.config.keys())}")
     _console.print()
 
     namespace: dict[str, Any] = {"artificery": art, "Artificery": Artificery}
-    code.interact(banner=banner, local=namespace, exitmsg="")
+
+    banner = "\n".join(
+        [
+            "Available variables:",
+            "  artificery  - Artificery instance (config loaded & merged)",
+            "",
+            "Quick start:",
+            "  artificery.config        # view the interpolated config",
+            "  artificery.resolve()     # resolve all objects",
+        ]
+    )
+
+    try:
+        from IPython import start_ipython
+
+        start_ipython(argv=[], user_ns=namespace, display_banner=False)
+    except ImportError:
+        code.interact(banner=banner, local=namespace, exitmsg="")
 
 
 if __name__ == "__main__":

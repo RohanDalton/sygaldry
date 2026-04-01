@@ -9,7 +9,7 @@ Rich-styled help output.
 Commands
 ========
 
-``sygaldry run`` (default)
+``sygaldry run``
   Load config, resolve an object, and call it.
 
 ``sygaldry show``
@@ -24,15 +24,19 @@ Commands
 ``sygaldry interactive``
   Start an interactive Python session with the config loaded.
 
-When no subcommand is given, ``run`` is assumed.
-
 run
 ===
 
 .. code-block:: text
 
-   sygaldry run -c CONFIG [--object KEY] [--set K=V] [--use K=K]
+   sygaldry run -c CONFIG OBJECT [--set K=V] [--use K=K]
                 [--method NAME] [--dry-run] [-v] [-q] [-- ARG ...]
+
+Arguments
+---------
+
+``OBJECT`` *(required)*
+  Top-level config key to resolve and use.
 
 Options
 -------
@@ -42,9 +46,6 @@ Options
   left to right so later files override earlier ones.
 
   Can also be set via the ``SYGALDRY_CONFIG`` environment variable.
-
-``--object`` *(required)*
-  Top-level config key to resolve and use.
 
 ``--set`` *(repeatable)*
   Override a config value before interpolation: ``dotted.path=value``.
@@ -85,22 +86,22 @@ Examples
 .. code-block:: bash
 
    # Basic: resolve an object and call it
-   sygaldry -c config.yaml --object pipeline
+   sygaldry run -c config.yaml pipeline
 
    # Multiple configs, deep-merged left to right
-   sygaldry -c base.yaml -c prod.yaml --object pipeline
+   sygaldry run -c base.yaml -c prod.yaml pipeline
 
    # Override a nested value
-   sygaldry -c config.yaml --object pipeline --set db.host=prod-db
+   sygaldry run -c config.yaml pipeline --set db.host=prod-db
 
    # Swap a value for another config path
-   sygaldry -c config.yaml --object pipeline --use db.host=defaults.prod_host
+   sygaldry run -c config.yaml pipeline --use db.host=defaults.prod_host
 
    # Call a specific method with arguments
-   sygaldry run -c config.yaml --object pipeline --method process -- 42 hello true
+   sygaldry run -c config.yaml pipeline --method process -- 42 hello true
 
    # Dry run
-   sygaldry run -c config.yaml --object pipeline --dry-run
+   sygaldry run -c config.yaml pipeline --dry-run
 
 show
 ====
@@ -269,13 +270,13 @@ With this config:
 .. code-block:: bash
 
    # Calls pipeline.execute("daily")
-   sygaldry -c config.yaml --object pipeline
+   sygaldry run -c config.yaml pipeline
 
    # Override method: calls pipeline.run("daily")
-   sygaldry -c config.yaml --object pipeline --method run
+   sygaldry run -c config.yaml pipeline --method run
 
    # Override args: calls pipeline.execute(100, "weekly")
-   sygaldry -c config.yaml --object pipeline -- 100 weekly
+   sygaldry run -c config.yaml pipeline -- 100 weekly
 
 CLI ``--method`` overrides ``_call.method``. Arguments after ``--`` override
 ``_call.args``.

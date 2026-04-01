@@ -251,12 +251,7 @@ def cli():
 
 @cli.command(context_settings={"ignore_unknown_options": True})
 @_config_options
-@click.option(
-    "--object",
-    "object_key",
-    required=True,
-    help="Top-level config key to resolve and use.",
-)
+@click.argument("object_key")
 @click.option(
     "--method",
     "method_name",

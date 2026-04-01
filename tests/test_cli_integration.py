@@ -67,7 +67,7 @@ def test_run_basic_callable(tmp_path, runner):
         "config.yaml",
         "greeter:\n  _type: tests.test_cli_integration.Greeter\n  name: world\n",
     )
-    result = runner.invoke(cli, ["run", "-c", cfg, "--object", "greeter"])
+    result = runner.invoke(cli, ["run", "-c", cfg, "greeter"])
     assert result.exit_code == 0
     assert "Hello, world!" in result.output
 
@@ -84,7 +84,7 @@ def test_run_deep_merge(tmp_path, runner):
         "override.yaml",
         "greeter:\n  name: override\n",
     )
-    result = runner.invoke(cli, ["run", "-c", base, "-c", override, "--object", "greeter"])
+    result = runner.invoke(cli, ["run", "-c", base, "-c", override, "greeter"])
     assert result.exit_code == 0
     assert "Hello, override!" in result.output
 
@@ -98,7 +98,7 @@ def test_run_set_override(tmp_path, runner):
     )
     result = runner.invoke(
         cli,
-        ["run", "-c", cfg, "--object", "greeter", "--set", "greeter.name=overridden"],
+        ["run", "-c", cfg, "greeter", "--set", "greeter.name=overridden"],
     )
     assert result.exit_code == 0
     assert "Hello, overridden!" in result.output
@@ -121,7 +121,6 @@ def test_run_use_substitution(tmp_path, runner):
             "run",
             "-c",
             cfg,
-            "--object",
             "greeter",
             "--use",
             "greeter.name=defaults.formal_name",
@@ -140,7 +139,7 @@ def test_run_method_selection(tmp_path, runner):
     )
     result = runner.invoke(
         cli,
-        ["run", "-c", cfg, "--object", "greeter", "--method", "greet"],
+        ["run", "-c", cfg, "greeter", "--method", "greet"],
     )
     assert result.exit_code == 0
     assert "Hi, Alice!" in result.output
@@ -159,7 +158,6 @@ def test_run_method_with_args(tmp_path, runner):
             "run",
             "-c",
             cfg,
-            "--object",
             "greeter",
             "--method",
             "greet",
@@ -184,7 +182,7 @@ def test_run_call_defaults(tmp_path, runner):
         "    args:\n"
         "      - weekly\n",
     )
-    result = runner.invoke(cli, ["run", "-c", cfg, "--object", "pipeline"])
+    result = runner.invoke(cli, ["run", "-c", cfg, "pipeline"])
     assert result.exit_code == 0
     assert "executed:weekly:500" in result.output
 
@@ -203,7 +201,7 @@ def test_run_cli_overrides_call_defaults(tmp_path, runner):
     )
     result = runner.invoke(
         cli,
-        ["run", "-c", cfg, "--object", "pipeline", "--", "daily"],
+        ["run", "-c", cfg, "pipeline", "--", "daily"],
     )
     assert result.exit_code == 0
     assert "executed:daily:100" in result.output
@@ -216,7 +214,7 @@ def test_run_dry_run(tmp_path, runner):
         "config.yaml",
         "greeter:\n  _type: tests.test_cli_integration.Greeter\n  name: world\n",
     )
-    result = runner.invoke(cli, ["run", "-c", cfg, "--object", "greeter", "--dry-run"])
+    result = runner.invoke(cli, ["run", "-c", cfg, "greeter", "--dry-run"])
     assert result.exit_code == 0
     assert "Hello, world!" not in result.output
     assert "Dry run summary" in result.output
@@ -229,10 +227,10 @@ def test_run_int_return_becomes_exit_code(tmp_path, runner):
         "config.yaml",
         "runner:\n  _type: tests.test_cli_integration.ExitCodeRunner\n",
     )
-    result = runner.invoke(cli, ["run", "-c", cfg, "--object", "runner", "--method", "run"])
+    result = runner.invoke(cli, ["run", "-c", cfg, "runner", "--method", "run"])
     assert result.exit_code == 0
 
-    result = runner.invoke(cli, ["run", "-c", cfg, "--object", "runner", "--method", "fail"])
+    result = runner.invoke(cli, ["run", "-c", cfg, "runner", "--method", "fail"])
     assert result.exit_code == 1
 
 
@@ -243,7 +241,7 @@ def test_run_quiet_suppresses_output(tmp_path, runner):
         "config.yaml",
         "greeter:\n  _type: tests.test_cli_integration.Greeter\n  name: world\n",
     )
-    result = runner.invoke(cli, ["run", "-c", cfg, "--object", "greeter", "-q"])
+    result = runner.invoke(cli, ["run", "-c", cfg, "greeter", "-q"])
     assert result.exit_code == 0
     assert "Hello, world!" not in result.output
 
@@ -341,7 +339,7 @@ def test_validate_invalid_config_prints_error(tmp_path, runner):
 def test_missing_object_key_error(tmp_path, runner):
     """GIVEN a config WHEN --object refers to a missing key THEN error lists available keys."""
     cfg = _write_cfg(tmp_path, "config.yaml", "db:\n  host: localhost\n")
-    result = runner.invoke(cli, ["run", "-c", cfg, "--object", "missing"])
+    result = runner.invoke(cli, ["run", "-c", cfg, "missing"])
     assert result.exit_code == 1
     assert "missing" in result.output
     assert "db" in result.output
@@ -349,9 +347,7 @@ def test_missing_object_key_error(tmp_path, runner):
 
 def test_set_bad_syntax_error(runner):
     """GIVEN bad --set syntax WHEN run THEN error is printed."""
-    result = runner.invoke(
-        cli, ["run", "-c", "nonexistent.yaml", "--object", "x", "--set", "noequals"]
-    )
+    result = runner.invoke(cli, ["run", "-c", "nonexistent.yaml", "x", "--set", "noequals"])
     assert result.exit_code != 0
 
 
@@ -360,7 +356,7 @@ def test_use_missing_source_error(tmp_path, runner):
     cfg = _write_cfg(tmp_path, "config.yaml", "db:\n  host: localhost\n")
     result = runner.invoke(
         cli,
-        ["run", "-c", cfg, "--object", "db", "--use", "db.host=nonexistent.path"],
+        ["run", "-c", cfg, "db", "--use", "db.host=nonexistent.path"],
     )
     assert result.exit_code == 1
     assert "nonexistent.path" in result.output
@@ -378,7 +374,7 @@ def test_run_with_toml(tmp_path, runner):
         "config.toml",
         '[greeter]\n_type = "tests.test_cli_integration.Greeter"\nname = "toml-world"\n',
     )
-    result = runner.invoke(cli, ["run", "-c", cfg, "--object", "greeter"])
+    result = runner.invoke(cli, ["run", "-c", cfg, "greeter"])
     assert result.exit_code == 0
     assert "Hello, toml-world!" in result.output
 

@@ -5,7 +5,17 @@ requires = ["hatchling"]
 [project]
 name = "sygaldry"
 authors = [{name = "Rohan B. Dalton", email = "rohan@rohandalton.io"}]
-classifiers = ["License :: OSI Approved :: MIT License"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
 description = "Build arbitrary Python objects from YAML or TOML configuration files."
 dynamic = ["version"]
 readme = "README.rst"
@@ -19,6 +29,7 @@ dependencies = [
 sygaldry = "sygaldry.cli:cli"
 
 [project.urls]
+Documentation = "https://sygaldry.art"
 Home = "https://github.com/RohanDalton/sygaldry"
 
 [tool.coverage.paths]
@@ -67,8 +78,13 @@ ty = "*"
 sphinx = "*"
 sphinx_rtd_theme = "*"
 
+[tool.pixi.feature.build.dependencies]
+hatch = "*"
+twine = "*"
+
 [tool.pixi.environments]
 dev = ["test", "lint", "docs"]
+build = ["build"]
 
 [tool.ruff]
 line-length = 95

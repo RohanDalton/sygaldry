@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
+from .__version__ import __version__
 from .artificery import Artificery, resolve_config
 from .cache import Instances
 

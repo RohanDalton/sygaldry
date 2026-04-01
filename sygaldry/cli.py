@@ -240,24 +240,7 @@ def _config_options(func):
     return func
 
 
-class _DefaultGroup(click.RichGroup):
-    """
-    Click group that defaults to the 'run' subcommand.
-    """
-
-    def parse_args(self, ctx, args):
-        # If the first arg isn't a known subcommand, insert 'run'.
-        if args and args[0] not in self.commands and not args[0].startswith("-"):
-            # Not a known command and not a flag -- unknown arg, let Click handle it.
-            pass
-        elif args and args[0] not in self.commands:
-            args = ["run"] + list(args)
-        elif not args:
-            args = ["run"]
-        return super().parse_args(ctx, args)
-
-
-@click.group(cls=_DefaultGroup)
+@click.group()
 @click.version_option(package_name="sygaldry")
 def cli():
     """

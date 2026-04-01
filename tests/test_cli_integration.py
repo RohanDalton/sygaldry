@@ -72,18 +72,6 @@ def test_run_basic_callable(tmp_path, runner):
     assert "Hello, world!" in result.output
 
 
-def test_run_default_subcommand(tmp_path, runner):
-    """GIVEN no subcommand WHEN invoked THEN defaults to run."""
-    cfg = _write_cfg(
-        tmp_path,
-        "config.yaml",
-        "greeter:\n  _type: tests.test_cli_integration.Greeter\n  name: world\n",
-    )
-    result = runner.invoke(cli, ["-c", cfg, "--object", "greeter"])
-    assert result.exit_code == 0
-    assert "Hello, world!" in result.output
-
-
 def test_run_deep_merge(tmp_path, runner):
     """GIVEN two config files WHEN run THEN they are deep-merged."""
     base = _write_cfg(

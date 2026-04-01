@@ -68,7 +68,9 @@ def _detect_type_checker() -> str:
     for name in SUPPORTED_CHECKERS:
         if shutil.which(name):
             return name
-    raise RuntimeError("No supported type checker found. Install ty, basedpyright, pyright, or mypy.")
+    raise RuntimeError(
+        "No supported type checker found. Install ty, basedpyright, pyright, or mypy."
+    )
 
 
 def _run_and_parse(

@@ -16,6 +16,7 @@ RESERVED_KEYS = frozenset(
         "_type",
         "_func",
         "_args",
+        "_kwargs",
         "_instance",
         "_ref",
         "_deep",

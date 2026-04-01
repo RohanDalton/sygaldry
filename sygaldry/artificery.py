@@ -581,10 +581,17 @@ class Artificery:
         """
         type_path = value.get("_type")
         args = value.get("_args", [])
+        extra_kwargs = value.get("_kwargs", {})
         instance = value.get("_instance")
         if not isinstance(args, list):
             raise ResolutionError(
                 "_args must be a list.",
+                file_path=self._source_label,
+                config_path=".".join(path),
+            )
+        if not isinstance(extra_kwargs, dict):
+            raise ResolutionError(
+                "_kwargs must be a mapping.",
                 file_path=self._source_label,
                 config_path=".".join(path),
             )
@@ -594,6 +601,8 @@ class Artificery:
         resolved_kwargs = {
             key: self._resolve_value(val, path=path + [key]) for key, val in kwargs.items()
         }
+        for key, val in extra_kwargs.items():
+            resolved_kwargs[key] = self._resolve_value(val, path=path + ["_kwargs", key])
 
         try:
             target = import_dotted_path(
@@ -634,9 +643,7 @@ class Artificery:
         )
 
 
-def _collect_refs(
-    value: Any, *, path: list[str] | None = None
-) -> Iterable[tuple[str, str]]:
+def _collect_refs(value: Any, *, path: list[str] | None = None) -> Iterable[tuple[str, str]]:
     """
     Collect ``_ref`` occurrences from a config tree.
 

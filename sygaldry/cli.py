@@ -310,9 +310,6 @@ def run(
 
     except SystemExit:
         raise
-    except SygaldryError as exc:
-        _console.print(f"[bold red]Error:[/bold red] {exc}")
-        raise SystemExit(1) from None
     except Exception as exc:
         if verbose:
             _console.print_exception()
@@ -454,9 +451,6 @@ def check(
 
     except SystemExit:
         raise
-    except SygaldryError as exc:
-        _console.print(f"[bold red]Error:[/bold red] {exc}")
-        raise SystemExit(1) from None
     except Exception as exc:
         if verbose:
             _console.print_exception()
@@ -482,9 +476,6 @@ def interactive(
         # Eagerly prepare the config so errors surface before the REPL starts.
         _ = art.config
 
-    except SygaldryError as exc:
-        _console.print(f"[bold red]Error:[/bold red] {exc}")
-        raise SystemExit(1) from None
     except Exception as exc:
         if verbose:
             _console.print_exception()

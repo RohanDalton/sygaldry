@@ -739,7 +739,10 @@ def _validate_signature(
 
     missing = list()
     for name, param in signature.parameters.items():
-        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD) or param.default is not param.empty:
+        if (
+            param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD)
+            or param.default is not param.empty
+        ):
             continue
         elif name not in bound.arguments:
             missing.append(name)

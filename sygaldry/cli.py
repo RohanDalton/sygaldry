@@ -14,6 +14,7 @@ from rich.syntax import Syntax
 
 from .artificery import Artificery
 from .checker import check as run_check
+from .codegen import generate_check_source
 from .errors import CLIError, SygaldryError
 from .loader import _infer_scalar
 
@@ -185,7 +186,8 @@ def _print_dry_run(
     args: list[Any],
     config: dict[str, Any],
 ) -> None:
-    """Print a dry-run summary.
+    """
+    Print a dry-run summary.
 
     :param config_paths: Config file paths that were loaded.
     :param object_key: Object key to resolve.
@@ -346,6 +348,19 @@ def run(
     is_flag=True,
     help="List available top-level config keys.",
 )
+@click.option(
+    "--raw",
+    is_flag=True,
+    help="Show the merged YAML/JSON config instead of generated Python code.",
+)
+@click.option(
+    "-o",
+    "--output",
+    "output_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Write output to a file instead of stdout.",
+)
 def show(
     config_paths: tuple[Path, ...],
     set_overrides: tuple[str, ...],
@@ -354,8 +369,15 @@ def show(
     output_format: str,
     resolved: bool,
     list_objects: bool,
+    raw: bool,
+    output_path: Path | None,
 ) -> None:
-    """Display the merged config for debugging."""
+    """
+    Display the generated Python code for a config.
+
+    By default, shows the Python code that would be type-checked.
+    Use --raw to see the merged YAML/JSON config instead.
+    """
     try:
         art = _build_artificery(config_paths, set_overrides, use_overrides)
 
@@ -378,18 +400,29 @@ def show(
                     click.echo(f"{key}: {repr(value)}")
             return
 
-        display = art.config
-        if object_key:
-            if object_key not in display:
-                available = sorted(display.keys())
-                raise CLIError(f"Object '{object_key}' not found. Available keys: {available}")
-            display = display[object_key]
+        if raw:
+            display = art.config
+            if object_key:
+                if object_key not in display:
+                    available = sorted(display.keys())
+                    raise CLIError(
+                        f"Object '{object_key}' not found. Available keys: {available}"
+                    )
+                display = display[object_key]
 
-        if output_format == "json":
-            click.echo(json.dumps(display, indent=2, default=str))
+            if output_format == "json":
+                text = json.dumps(display, indent=2, default=str)
+            else:
+                text = _format_config_yaml(display)
         else:
-            yaml_str = _format_config_yaml(display)
-            syntax = Syntax(yaml_str, "yaml", theme="monokai")
+            text, _ = generate_check_source(art.config)
+
+        if output_path:
+            output_path.write_text(text)
+            _console.print(f"Wrote output to [bold]{output_path}[/bold]")
+        else:
+            lexer = "yaml" if raw and output_format != "json" else "json" if raw else "python"
+            syntax = Syntax(text, lexer, theme="monokai")
             Console().print(syntax)
 
     except SystemExit:
@@ -406,7 +439,9 @@ def validate(
     set_overrides: tuple[str, ...],
     use_overrides: tuple[str, ...],
 ) -> None:
-    """Validate config without executing."""
+    """
+    Validate config without executing.
+    """
     try:
         _build_artificery(config_paths, set_overrides, use_overrides).resolve()
         _console.print("[bold green]Config is valid.[/bold green]")

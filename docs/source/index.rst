@@ -17,6 +17,7 @@ It is the place where Sygaldry is used to create amazing objects.
    :caption: Contents:
 
    overview
+   comparison
    configuration
    loading
    resolver

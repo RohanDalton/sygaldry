@@ -232,7 +232,7 @@ def test_artificery_uses_missing_source_raises(tmp_path):
     cfg = tmp_path / "cfg.yaml"
     cfg.write_text("db:\n  host: localhost\n", encoding="utf-8")
     with pytest.raises(ConfigReferenceError, match="not found"):
-        Artificery(cfg, uses={"db.host": "missing.path"}).config
+        _ = Artificery(cfg, uses={"db.host": "missing.path"}).config
 
 
 def test_artificery_overrides_after_uses(tmp_path):

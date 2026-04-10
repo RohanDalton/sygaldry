@@ -341,14 +341,22 @@ def run(
         raise SystemExit(1) from None
 
 
-@cli.command()
+@cli.command(context_settings={"ignore_unknown_options": True})
 @_config_options
+@click.argument("object_key", required=False, default=None)
 @click.option(
     "--object",
-    "object_key",
+    "object_key_opt",
     default=None,
-    help="Show only this top-level key.",
+    help="Show only this top-level key (also accepted as a positional argument).",
 )
+@click.option(
+    "--method",
+    "method_name",
+    default=None,
+    help="Method to show being called on the resolved object.",
+)
+@click.argument("method_args", nargs=-1, type=click.UNPROCESSED)
 @click.option(
     "--format",
     "output_format",
@@ -379,23 +387,38 @@ def run(
     default=None,
     help="Write output to a file instead of stdout.",
 )
+@click.option(
+    "--line-length",
+    "line_length",
+    type=int,
+    default=99,
+    show_default=True,
+    help="Maximum line length for generated Python code.",
+)
 def show(
     config_paths: tuple[Path, ...],
     set_overrides: tuple[str, ...],
     use_overrides: tuple[str, ...],
     object_key: str | None,
+    object_key_opt: str | None,
+    method_name: str | None,
+    method_args: tuple[str, ...],
     output_format: str,
     resolved: bool,
     list_objects: bool,
     raw: bool,
     output_path: Path | None,
+    line_length: int,
 ) -> None:
     """
     Display the generated Python code for a config.
 
+    Optionally pass OBJECT_KEY to also show the call expression for that object.
+
     By default, shows the Python code that would be type-checked.
     Use --raw to see the merged YAML/JSON config instead.
     """
+    object_key = object_key or object_key_opt
     try:
         art = _build_artificery(config_paths, set_overrides, use_overrides)
 
@@ -433,7 +456,23 @@ def show(
             else:
                 text = _format_config_yaml(display)
         else:
-            text, _ = generate_check_source(art.config)
+            call_target = None
+            call_method = None
+            call_args: list[Any] | None = None
+
+            if object_key:
+                call_target = object_key
+                cfg_method, cfg_args = _extract_call_defaults(art.config, object_key)
+                call_method = method_name if method_name is not None else cfg_method
+                call_args = _parse_method_args(method_args) if method_args else cfg_args
+
+            text, _ = generate_check_source(
+                art.config,
+                line_length=line_length,
+                call_target=call_target,
+                call_method=call_method,
+                call_args=call_args or None,
+            )
 
         if output_path:
             output_path.write_text(text)

@@ -24,6 +24,7 @@ from .loader import (
     _get_by_path,
     _interpolate_config,
     _load_with_includes,
+    _maybe_download,
     load_config,
 )
 from .types import RESERVED_KEYS, import_dotted_path
@@ -85,13 +86,12 @@ def load_config_file(path: str | Path) -> dict[str, Any]:
     """
     Load a config file without resolving components.
 
-    :param path: Path to a YAML or TOML config file.
+    :param path: Path to a YAML or TOML config file, or an HTTP(S) URL.
     :type path: str | pathlib.Path
     :returns: Parsed and interpolated mapping.
     :rtype: dict[str, Any]
     """
-    file_path = Path(path)
-    return load_config(file_path)
+    return load_config(path)
 
 
 class ArtificeryLoader:
@@ -103,10 +103,10 @@ class ArtificeryLoader:
         """
         Initialize the loader.
 
-        :param path: Path to a YAML or TOML config file.
+        :param path: Path to a YAML or TOML config file, or an HTTP(S) URL.
         :type path: str | pathlib.Path
         """
-        self._path = Path(path)
+        self._path = path
 
     def load(self) -> dict[str, Any]:
         """
@@ -185,7 +185,7 @@ class Artificery:
         self._active_config: dict[str, Any] = dict()
         self._cache = cache or Instances()
         self._overrides = overrides or dict()
-        self._paths = tuple(Path(path) for path in paths)
+        self._paths = tuple(path if isinstance(path, str) else Path(path) for path in paths)
         self._prepared: dict[str, Any] | None = None
         self._raw_config = config
         self._resolved_top: dict[str, Any] = dict()
@@ -246,7 +246,8 @@ class Artificery:
         """
         merged: dict[str, Any] = dict()
         for path in self._paths:
-            resolved_path = path.expanduser().resolve()
+            local = _maybe_download(path)
+            resolved_path = local.expanduser().resolve()
             visited: set[Path] = set()
             data = _load_with_includes(resolved_path, ancestors=[], visited=visited)
             merged = _deep_merge(merged, data)

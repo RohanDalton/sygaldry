@@ -81,6 +81,7 @@ sphinx_rtd_theme = "*"
 [tool.pixi.feature.build.dependencies]
 hatch = "*"
 twine = "*"
+grayskull = ">=3.1.0,<4"
 
 [tool.pixi.environments]
 dev = ["test", "lint", "docs"]

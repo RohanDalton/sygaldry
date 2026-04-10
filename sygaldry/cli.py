@@ -16,7 +16,7 @@ from .artificery import Artificery
 from .checker import check as run_check
 from .codegen import generate_check_source
 from .errors import CLIError, SygaldryError
-from .loader import _infer_scalar
+from .loader import _infer_scalar, _is_url
 
 _console = Console(stderr=True)
 
@@ -217,6 +217,24 @@ def _print_dry_run(
         _console.print(syntax)
 
 
+class _ConfigPathOrURL(click.ParamType):
+    """Click parameter type that accepts a local file path or an HTTP(S) URL."""
+
+    name = "CONFIG"
+
+    def convert(self, value, param, ctx):
+        if isinstance(value, Path):
+            return value
+        if _is_url(value):
+            return value
+        path = Path(value)
+        if not path.exists():
+            self.fail(f"Path '{value}' does not exist.", param, ctx)
+        if path.is_dir():
+            self.fail(f"Path '{value}' is a directory.", param, ctx)
+        return path
+
+
 def _config_options(func):
     """
     Shared options for config loading, --set, and --use.
@@ -227,9 +245,9 @@ def _config_options(func):
         "config_paths",
         multiple=True,
         required=True,
-        type=click.Path(exists=True, dir_okay=False, path_type=Path),
+        type=_ConfigPathOrURL(),
         envvar="SYGALDRY_CONFIG",
-        help="Config file path. Repeat for multiple files; deep-merged in order.",
+        help="Config file path or HTTP(S) URL. Repeat for multiple; deep-merged in order.",
     )(func)
     func = click.option(
         "--set",

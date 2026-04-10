@@ -1,11 +1,15 @@
 __author__ = "Rohan B. Dalton"
 
+import http.server
+import threading
+
 import pytest
 
 from sygaldry.errors import (
     CircularIncludeError,
     CircularInterpolationError,
     InterpolationError,
+    ParseError,
 )
 from sygaldry.loader import load_config
 
@@ -263,6 +267,90 @@ def test_circular_include_detection(tmp_path):
 
     with pytest.raises(CircularIncludeError):
         load_config(a)
+
+
+@pytest.fixture()
+def _serve_dir(tmp_path):
+    """Serve *tmp_path* over HTTP on a random port and yield the base URL."""
+    handler = lambda *a, **kw: http.server.SimpleHTTPRequestHandler(
+        *a, directory=str(tmp_path), **kw
+    )
+    server = http.server.HTTPServer(("127.0.0.1", 0), handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{port}"
+    server.shutdown()
+
+
+def test_load_config_from_http_url(tmp_path, _serve_dir):
+    """
+    GIVEN: A YAML config served over HTTP.
+    WHEN:  load_config is called with the URL.
+    THEN:  The config is loaded correctly.
+    """
+    (tmp_path / "remote.yaml").write_text(
+        "service:\n  host: remote-host\n  port: 9090\n", encoding="utf-8"
+    )
+    config = load_config(f"{_serve_dir}/remote.yaml")
+    assert config["service"]["host"] == "remote-host"
+    assert config["service"]["port"] == 9090
+
+
+def test_load_config_from_http_url_toml(tmp_path, _serve_dir):
+    """
+    GIVEN: A TOML config served over HTTP.
+    WHEN:  load_config is called with the URL.
+    THEN:  The config is loaded correctly.
+    """
+    (tmp_path / "remote.toml").write_text(
+        '[service]\nhost = "toml-host"\nport = 8080\n', encoding="utf-8"
+    )
+    config = load_config(f"{_serve_dir}/remote.toml")
+    assert config["service"]["host"] == "toml-host"
+    assert config["service"]["port"] == 8080
+
+
+def test_http_config_with_absolute_url_include(tmp_path, _serve_dir):
+    """
+    GIVEN: A remote YAML config that includes another remote file via absolute URL.
+    WHEN:  load_config is called with the URL.
+    THEN:  Both files are merged correctly.
+    """
+    (tmp_path / "base.yaml").write_text(
+        "db:\n  host: db-host\n  port: 5432\n", encoding="utf-8"
+    )
+    (tmp_path / "app.yaml").write_text(
+        f'_include:\n  - "{_serve_dir}/base.yaml"\ndb:\n  port: 6543\n',
+        encoding="utf-8",
+    )
+    config = load_config(f"{_serve_dir}/app.yaml")
+    assert config["db"]["host"] == "db-host"
+    assert config["db"]["port"] == 6543
+
+
+def test_http_config_download_failure_raises():
+    """
+    GIVEN: A URL that cannot be reached.
+    WHEN:  load_config is called.
+    THEN:  A ParseError is raised.
+    """
+    with pytest.raises(ParseError, match="Failed to download"):
+        load_config("http://127.0.0.1:1/nonexistent.yaml")
+
+
+def test_http_config_with_interpolation(tmp_path, _serve_dir):
+    """
+    GIVEN: A remote config with interpolation.
+    WHEN:  load_config is called.
+    THEN:  Interpolation resolves correctly.
+    """
+    (tmp_path / "interp.yaml").write_text(
+        'db:\n  host: myhost\n  port: 5432\nurl: "postgres://${db.host}:${db.port}/app"\n',
+        encoding="utf-8",
+    )
+    config = load_config(f"{_serve_dir}/interp.yaml")
+    assert config["url"] == "postgres://myhost:5432/app"
 
 
 if __name__ == "__main__":

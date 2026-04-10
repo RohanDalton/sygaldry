@@ -4,6 +4,8 @@ __author__ = "Rohan B. Dalton"
 
 import os
 import re
+import tempfile
+import urllib.request
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Optional
@@ -30,17 +32,61 @@ _FLOAT_RE = re.compile(r"^(?P<float>[-+]?\d*\.\d+(?:[eE][-+]?\d+)?)$")
 _SCI_INT_RE = re.compile(r"^(?P<sci_int>[-+]?\d+[eE][-+]?\d+)$")
 
 
-def load_config(path: Path) -> dict[str, Any]:
+def _is_url(path: str | Path) -> bool:
+    """
+    Return True if *path* looks like an HTTP(S) URL.
+    """
+    if isinstance(path, str):
+        return path.startswith("https://") or path.startswith("http://")
+    return False
+
+
+def _maybe_download(path: str | Path) -> Path:
+    """
+    If *path* is an HTTP(S) URL, download it to a temporary file and return
+    the local path.  Otherwise return *path* as a :class:`~pathlib.Path`.
+
+    The suffix of the URL (ignoring query string / fragment) is preserved so
+    that format detection continues to work.
+
+    :param path: Local file path or HTTP(S) URL.
+    :type path: str | pathlib.Path
+    :returns: Local filesystem path to the config content.
+    :rtype: pathlib.Path
+    :raises ParseError: If the download fails.
+    """
+    if not _is_url(path):
+        return Path(path)
+
+    url = str(path)
+    # Derive suffix from URL (strip query/fragment first).
+    clean = url.split("?", maxsplit=1)[0].split("#", maxsplit=1)[0]
+    dot = clean.rfind(".")
+    suffix = clean[dot:] if dot != -1 else ""
+
+    with urllib.request.urlopen(url) as response:
+        content = response.read()
+
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        tmp.write(content)
+    finally:
+        tmp.close()
+    return Path(tmp.name)
+
+
+def load_config(path: str | Path) -> dict[str, Any]:
     """
     Load and interpolate a config file.
 
-    :param path: Path to a YAML or TOML config file.
-    :type path: pathlib.Path
+    :param path: Path to a YAML or TOML config file, or an HTTP(S) URL.
+    :type path: str | pathlib.Path
     :returns: Merged, interpolated configuration mapping.
     :rtype: dict[str, Any]
     """
+    local = _maybe_download(path)
     visited: set[Path] = set()
-    data = _load_with_includes(path, ancestors=[], visited=visited)
+    data = _load_with_includes(local, ancestors=[], visited=visited)
     return _interpolate_config(data, file_path=str(path))
 
 
@@ -96,8 +142,11 @@ def _resolve_include(base: Path, include: Any) -> Path:
     """
     Resolve an include entry relative to its base file.
 
+    If *include* is an HTTP(S) URL it is downloaded to a temporary file
+    first.
+
     :param base: Path to the including file.
-    :param include: Include entry value.
+    :param include: Include entry value (path or HTTP(S) URL).
     :type base: pathlib.Path
     :type include: object
     :returns: Absolute path to the included file.
@@ -106,6 +155,8 @@ def _resolve_include(base: Path, include: Any) -> Path:
     """
     if not isinstance(include, str):
         raise IncludeError("Include paths must be strings.", file_path=str(base))
+    if _is_url(include):
+        return _maybe_download(include)
     candidate = Path(include)
     if not candidate.is_absolute():
         candidate = base.parent / candidate

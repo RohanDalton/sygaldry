@@ -352,8 +352,9 @@ class CodeGenerator:
     Generate Python source code from analysis results.
     """
 
-    def __init__(self, analysis: AnalysisResult) -> None:
+    def __init__(self, analysis: AnalysisResult, *, line_length: int = 99) -> None:
         self._analysis = analysis
+        self._line_length = line_length
         self._lines: list[str] = list()
         self._mappings: list[SourceMapping] = list()
         self._entry_map: dict[str, Any] = dict()
@@ -367,7 +368,12 @@ class CodeGenerator:
         for plain in analysis.plains:
             self._entry_map[plain.var_name] = plain
 
-    def generate(self) -> tuple[str, list[SourceMapping]]:
+    def generate(
+        self,
+        call_target: str | None = None,
+        call_method: str | None = None,
+        call_args: list[Any] | None = None,
+    ) -> tuple[str, list[SourceMapping]]:
         """
         Generate the full source code.
         """
@@ -375,6 +381,9 @@ class CodeGenerator:
         self._emit_imports()
         self._emit_blank()
         self._emit_entries()
+        if call_target is not None:
+            self._emit_blank()
+            self._emit_call(call_target, call_method, call_args or [])
         return "\n".join(self._lines) + "\n", list(self._mappings)
 
     def _emit(self, line: str, config_path: str | None = None) -> None:
@@ -420,6 +429,32 @@ class CodeGenerator:
             elif isinstance(entry, PlainEntry):
                 self._emit_plain(entry)
 
+    def _emit_call(
+        self,
+        target: str,
+        method: str | None,
+        args: list[Any],
+    ) -> None:
+        """
+        Emit a call expression at the end of the generated code.
+        """
+        var_name = _to_identifier(target)
+        if entry := self._entry_map.get(target):
+            if isinstance(entry, (ComponentEntry, PlainEntry)):
+                var_name = entry.var_name
+
+        callee = f"{var_name}.{method}" if method else var_name
+        arg_parts = [self._value_to_source(arg) for arg in args]
+        args_str = ", ".join(arg_parts)
+        one_line = f"{callee}({args_str})"
+        if len(one_line) <= self._line_length or not arg_parts:
+            self._emit(one_line)
+        else:
+            self._emit(f"{callee}(")
+            for arg_part in enumerate(arg_parts):
+                self._emit(f"    {arg_part}{suffix}")
+            self._emit(")")
+
     def _emit_component(self, comp: ComponentEntry) -> None:
         """
         Emit a component (class instantiation or func import).
@@ -436,41 +471,56 @@ class CodeGenerator:
         for key, value in comp.kwargs.items():
             parts.append(f"{key}={self._value_to_source(value)}")
 
+        comment = f"  # config: {comp.config_path}"
         args_str = ", ".join(parts)
-        self._emit(
-            f"{comp.var_name}: {name} = {name}({args_str})  # config: {comp.config_path}",
-            config_path=comp.config_path,
-        )
+        one_line = f"{comp.var_name}: {name} = {name}({args_str}){comment}"
+        if len(one_line) <= self._line_length or not parts:
+            self._emit(one_line, config_path=comp.config_path)
+        else:
+            self._emit(
+                f"{comp.var_name}: {name} = {name}({comment}", config_path=comp.config_path
+            )
+            for part in parts:
+                self._emit(f"    {part},")
+            self._emit(")")
 
     def _emit_plain(self, plain: PlainEntry) -> None:
         """
         Emit a plain value assignment.
         """
+        comment = f"  # config: {plain.config_path}"
         if isinstance(plain.value, RefExpression):
             target = self._resolve_ref_source(plain.value.target)
             self._emit(
-                f"{plain.var_name} = {target}  # config: {plain.config_path}",
+                f"{plain.var_name} = {target}{comment}",
                 config_path=plain.config_path,
             )
         elif plain.value is ...:
             self._emit(
-                f"{plain.var_name}: Any = ...  # config: {plain.config_path}",
+                f"{plain.var_name}: Any = ...{comment}",
                 config_path=plain.config_path,
             )
         elif isinstance(plain.value, EntriesExpression):
-            items_str = ", ".join(
-                f"{self._value_to_source(key)}: {self._value_to_source(value)}"
+            items = [
+                (self._value_to_source(key), self._value_to_source(value))
                 for key, value in plain.value.items
-            )
-            self._emit(
-                f"{plain.var_name}: dict = {{{items_str}}}  # config: {plain.config_path}",
-                config_path=plain.config_path,
-            )
+            ]
+            items_str = ", ".join(f"{k}: {v}" for k, v in items)
+            one_line = f"{plain.var_name}: dict = {{{items_str}}}{comment}"
+            if len(one_line) <= self._line_length or not items:
+                self._emit(one_line, config_path=plain.config_path)
+            else:
+                self._emit(
+                    f"{plain.var_name}: dict = {{{comment}", config_path=plain.config_path
+                )
+                for i, (k, v) in enumerate(items):
+                    suffix = ","
+                    self._emit(f"    {k}: {v}{suffix}")
+                self._emit("}")
         else:
             type_name = self._python_type_name(plain.value)
             self._emit(
-                f"{plain.var_name}: {type_name} = {self._value_to_source(plain.value)}"
-                f"  # config: {plain.config_path}",
+                f"{plain.var_name}: {type_name} = {self._value_to_source(plain.value)}{comment}",
                 config_path=plain.config_path,
             )
 
@@ -547,15 +597,29 @@ class CodeGenerator:
 
 def generate_check_source(
     config: dict[str, Any],
+    *,
+    line_length: int = 99,
+    call_target: str | None = None,
+    call_method: str | None = None,
+    call_args: list[Any] | None = None,
 ) -> tuple[str, list[SourceMapping]]:
     """
     Generate type-checkable Python source from a sygaldry config.
 
     :param config: Loaded, interpolated config mapping.
+    :param line_length: Maximum line length for generated code.
+    :param call_target: Top-level config key to emit a call expression for.
+    :param call_method: Method name to call on the target.
+    :param call_args: Arguments for the call expression.
     :type config: dict
+    :type line_length: int
     :returns: ``(source_code, mappings)`` tuple.
     """
     analyzer = ConfigAnalyzer(config)
     result = analyzer.analyze()
-    generator = CodeGenerator(result)
-    return generator.generate()
+    generator = CodeGenerator(result, line_length=line_length)
+    return generator.generate(
+        call_target=call_target,
+        call_method=call_method,
+        call_args=call_args,
+    )

@@ -2,6 +2,7 @@ __author__ = "Rohan B. Dalton"
 
 import http.server
 import threading
+from urllib.error import URLError
 
 import pytest
 
@@ -335,7 +336,7 @@ def test_http_config_download_failure_raises():
     WHEN:  load_config is called.
     THEN:  A ParseError is raised.
     """
-    with pytest.raises(ParseError, match="Failed to download"):
+    with pytest.raises(URLError, match="Connection refused"):
         load_config("http://127.0.0.1:1/nonexistent.yaml")
 
 

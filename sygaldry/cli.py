@@ -2,7 +2,9 @@ from __future__ import annotations
 
 __author__ = "Rohan B. Dalton"
 
+import asyncio
 import code
+import inspect
 import json
 from pathlib import Path
 from typing import Any, Optional
@@ -158,6 +160,8 @@ def _invoke_target(obj: Any, method_name: str | None, args: list[Any]) -> Any:
                     f"Attribute '{method_name}' on {type(obj).__name__!r} is not callable."
                 )
             else:
+                if inspect.iscoroutinefunction(target):
+                    return asyncio.run(target(*args))
                 return target(*args)
     else:
         if not callable(obj):
@@ -165,6 +169,8 @@ def _invoke_target(obj: Any, method_name: str | None, args: list[Any]) -> Any:
                 f"Object {type(obj).__name__!r} is not callable and no --method was specified."
             )
 
+        if inspect.iscoroutinefunction(getattr(obj, "__call__", obj)):
+            return asyncio.run(obj(*args))
         return obj(*args)
 
 

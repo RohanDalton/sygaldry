@@ -347,6 +347,14 @@ class _CallableObj:
         return f"Hello, {name}!"
 
 
+class _AsyncCallableObj:
+    async def __call__(self, *args):
+        return "async_called", args
+
+    async def greet(self, name="world"):
+        return f"Hello async, {name}!"
+
+
 class _NonCallableObj:
     value = 42
 
@@ -415,6 +423,39 @@ def test_invoke_target_non_callable_attribute_raises():
     obj = _NonCallableObj()
     with pytest.raises(CLIError, match="not callable"):
         _invoke_target(obj, "value", [])
+
+
+def test_invoke_target_async_callable():
+    """
+    GIVEN: An object with an async __call__.
+    WHEN:  Invoking without a method name.
+    THEN:  The coroutine is awaited via asyncio.run.
+    """
+    obj = _AsyncCallableObj()
+    result = _invoke_target(obj, None, [])
+    assert result == ("async_called", ())
+
+
+def test_invoke_target_async_callable_with_args():
+    """
+    GIVEN: An object with an async __call__ and positional args.
+    WHEN:  Invoking without a method name.
+    THEN:  The args are passed and the coroutine is awaited.
+    """
+    obj = _AsyncCallableObj()
+    result = _invoke_target(obj, None, [1, "two"])
+    assert result == ("async_called", (1, "two"))
+
+
+def test_invoke_target_async_named_method():
+    """
+    GIVEN: An object with an async named method.
+    WHEN:  Invoking with the method name and args.
+    THEN:  The coroutine is awaited and the result returned.
+    """
+    obj = _AsyncCallableObj()
+    result = _invoke_target(obj, "greet", ["Alice"])
+    assert result == "Hello async, Alice!"
 
 
 if __name__ == "__main__":

@@ -354,5 +354,59 @@ def test_http_config_with_interpolation(tmp_path, _serve_dir):
     assert config["url"] == "postgres://myhost:5432/app"
 
 
+def test_ref_placeholder_produces_ref_dict(tmp_path):
+    """
+    GIVEN: A config with a ``${ref:key}`` placeholder as the entire value.
+    WHEN:  Loading the config.
+    THEN:  The value is a ``_ref`` dict for downstream resolution.
+    """
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text('db:\n  host: localhost\nconn: "${ref:db}"\n', encoding="utf-8")
+
+    config = load_config(cfg)
+
+    assert config["conn"] == {"_ref": "db"}
+
+
+def test_ref_placeholder_with_dotted_path(tmp_path):
+    """
+    GIVEN: A config with a dotted ``${ref:key.attr}`` placeholder.
+    WHEN:  Loading the config.
+    THEN:  The dotted path is preserved in the ``_ref`` dict.
+    """
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text('db:\n  pool:\n    size: 5\nval: "${ref:db.pool}"\n', encoding="utf-8")
+
+    config = load_config(cfg)
+
+    assert config["val"] == {"_ref": "db.pool"}
+
+
+def test_ref_placeholder_embedded_in_string_raises(tmp_path):
+    """
+    GIVEN: A config with ``${ref:key}`` embedded in a larger string.
+    WHEN:  Loading the config.
+    THEN:  An InterpolationError is raised.
+    """
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text('db:\n  host: localhost\nurl: "foo ${ref:db} bar"\n', encoding="utf-8")
+
+    with pytest.raises(InterpolationError, match="cannot be embedded"):
+        load_config(cfg)
+
+
+def test_ref_placeholder_empty_target_raises(tmp_path):
+    """
+    GIVEN: A config with an empty ``${ref:}`` placeholder.
+    WHEN:  Loading the config.
+    THEN:  An InterpolationError is raised.
+    """
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text('val: "${ref:}"\n', encoding="utf-8")
+
+    with pytest.raises(InterpolationError, match="Empty ref target"):
+        load_config(cfg)
+
+
 if __name__ == "__main__":
     pass

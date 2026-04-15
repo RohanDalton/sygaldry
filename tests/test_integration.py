@@ -77,5 +77,31 @@ def test_toml_end_to_end_includes_interpolation_refs(tmp_path):
     assert resolved["service"].url == "postgres://localhost:6000/app"
 
 
+def test_ref_placeholder_resolves_to_same_object(tmp_path, monkeypatch):
+    """
+    GIVEN: A YAML config using ``${ref:key}`` instead of ``{_ref: key}``.
+    WHEN:  Loading and resolving the config.
+    THEN:  The referenced object is the same instance.
+    """
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text(
+        "db:\n"
+        '  _type: "tests.test_integration.Database"\n'
+        '  host: "${DB_HOST:-localhost}"\n'
+        "  port: 5432\n"
+        "service:\n"
+        '  _type: "tests.test_integration.Service"\n'
+        '  db: "${ref:db}"\n'
+        '  url: "postgres://${db.host}:${db.port}/app"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DB_HOST", "ref.local")
+
+    resolved = load(cfg)
+
+    assert resolved["service"].db is resolved["db"]
+    assert resolved["service"].url == "postgres://ref.local:5432/app"
+
+
 if __name__ == "__main__":
     pass

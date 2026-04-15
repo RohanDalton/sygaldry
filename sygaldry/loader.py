@@ -363,6 +363,12 @@ class _InterpolationResolver:
                 combined_parts.append(payload)
                 continue
             resolved = self._resolve_placeholder(payload.strip(), path)
+            if isinstance(resolved, dict) and "_ref" in resolved:
+                raise InterpolationError(
+                    "'${ref:...}' cannot be embedded in a string.",
+                    file_path=self._file_path,
+                    config_path=".".join(path),
+                )
             combined_parts.append(str(resolved))
         return "".join(combined_parts)
 
@@ -448,6 +454,16 @@ class _InterpolationResolver:
         :rtype: object
         :raises InterpolationError: If the token cannot be resolved.
         """
+        if token.startswith("ref:"):
+            ref_target = token[4:].strip()
+            if not ref_target:
+                raise InterpolationError(
+                    "Empty ref target in '${ref:}'.",
+                    file_path=self._file_path,
+                    config_path=".".join(path),
+                )
+            return {"_ref": ref_target}
+
         if ":-" in token:
             key, default = token.split(":-", 1)
             key = key.strip()

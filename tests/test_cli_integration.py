@@ -31,6 +31,17 @@ class Pipeline:
         return f"pipeline:{self.batch_size}"
 
 
+class AsyncGreeter:
+    def __init__(self, name: str):
+        self.name = name
+
+    async def __call__(self, *args):
+        return f"Hello async, {self.name}!"
+
+    async def greet(self, greeting: str = "Hi"):
+        return f"{greeting} async, {self.name}!"
+
+
 class ExitCodeRunner:
     def run(self):
         return 0

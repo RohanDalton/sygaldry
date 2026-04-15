@@ -579,3 +579,61 @@ def test_codegen_plain_list_value():
     """
     source = _source_for({"items": [1, 2, 3]})
     assert "items: list = [1, 2, 3]" in source
+
+
+def test_codegen_async_call_uses_asyncio_run():
+    """
+    GIVEN: A config with a _type whose method is async.
+    WHEN:  Generating source with a call expression for that method.
+    THEN:  The call is wrapped in asyncio.run() and asyncio is imported.
+    """
+    config = {
+        "greeter": {
+            "_type": "tests.test_cli_integration.AsyncGreeter",
+            "name": "world",
+        },
+    }
+    source, _ = generate_check_source(
+        config, call_target="greeter", call_method="greet", call_args=["Hi"]
+    )
+    assert "import asyncio" in source
+    assert "asyncio.run(greeter.greet(" in source
+
+
+def test_codegen_async_call_no_method():
+    """
+    GIVEN: A config with a _type whose __call__ is async.
+    WHEN:  Generating source with a call expression and no method.
+    THEN:  The call is wrapped in asyncio.run().
+    """
+    config = {
+        "greeter": {
+            "_type": "tests.test_cli_integration.AsyncGreeter",
+            "name": "world",
+        },
+    }
+    source, _ = generate_check_source(
+        config, call_target="greeter", call_method=None, call_args=[]
+    )
+    assert "import asyncio" in source
+    assert "asyncio.run(greeter())" in source
+
+
+def test_codegen_sync_call_no_asyncio():
+    """
+    GIVEN: A config with a _type whose method is sync.
+    WHEN:  Generating source with a call expression.
+    THEN:  asyncio is NOT imported and the call is not wrapped.
+    """
+    config = {
+        "greeter": {
+            "_type": "tests.test_cli_integration.Greeter",
+            "name": "world",
+        },
+    }
+    source, _ = generate_check_source(
+        config, call_target="greeter", call_method="greet", call_args=["Hi"]
+    )
+    assert "import asyncio" not in source
+    assert "asyncio.run" not in source
+    assert "greeter.greet(" in source

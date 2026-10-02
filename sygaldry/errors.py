@@ -2,8 +2,6 @@ from __future__ import annotations
 
 __author__ = "Rohan B. Dalton"
 
-from typing import Optional
-
 
 class SygaldryError(Exception):
     """
@@ -127,6 +125,10 @@ class CLIError(SygaldryError):
     """
     Errors originating from CLI argument processing.
     """
+
+
+class LifecycleError(ResolutionError):
+    """A managed resource was used outside its owning runtime lifetime."""
 
 
 if __name__ == "__main__":

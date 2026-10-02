@@ -1,6 +1,6 @@
-============
+=============
 Type Checking
-============
+=============
 
 Sygaldry can statically type check your configuration *before* any objects are
 instantiated. It generates equivalent Python source from the loaded config and
@@ -101,3 +101,12 @@ Pass a ``type_checker`` argument to force a specific checker:
 .. code-block:: python
 
    errors = check("config.yaml", type_checker="basedpyright")
+
+
+Protected checker source
+========================
+
+Protected secret values use harmless placeholders of matching primitive types
+in generated source. The checker runs against a private file inside a temporary
+directory, removed on success, checker failure, or timeout. Literal-dependent
+overloads may produce different diagnostics for a substituted placeholder.

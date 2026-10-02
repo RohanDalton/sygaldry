@@ -2,13 +2,14 @@ from __future__ import annotations
 
 __author__ = "Rohan B. Dalton"
 
-import importlib
 import inspect
 import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
-from .types import RESERVED_KEYS
+from .errors import ImportResolutionError
+from .secrets import safe_codegen_data
+from .types import RESERVED_KEYS, import_dotted_path
 
 _NON_IDENTIFIER_RE = re.compile(r"[^a-zA-Z0-9_]")
 
@@ -191,11 +192,19 @@ class ConfigAnalyzer:
                 )
             else:
                 self._plains.append(
-                    PlainEntry(config_path=key, var_name=variable_name, value=value)
+                    PlainEntry(
+                        config_path=key,
+                        var_name=variable_name,
+                        value=self._process_arg_value(value, key, self._deps[key]),
+                    )
                 )
         else:
             self._plains.append(
-                PlainEntry(config_path=key, var_name=variable_name, value=value)
+                PlainEntry(
+                    config_path=key,
+                    var_name=variable_name,
+                    value=self._process_arg_value(value, key, self._deps[key]),
+                )
             )
 
     def _analyze_type_entry(
@@ -283,11 +292,13 @@ class ConfigAnalyzer:
         elif "_type" in value:
             anon_name = self._alloc_anon(config_path.replace(".", "_"))
             self._analyze_type_entry(config_path, anon_name, value)
+            deps.append(config_path)
             return RefExpression(target=anon_name)
 
         elif "_func" in value:
             anon_name = self._alloc_anon(config_path.replace(".", "_"))
             self._analyze_func_entry(config_path, anon_name, value)
+            deps.append(config_path)
             return RefExpression(target=anon_name)
 
         elif value.get("_deep") is False:
@@ -297,7 +308,11 @@ class ConfigAnalyzer:
             return self._analyze_entries(value["_entries"], config_path, deps)
 
         else:
-            return value
+            processed = {
+                key: self._process_arg_value(child, f"{config_path}.{key}", deps)
+                for key, child in value.items()
+            }
+            return processed
 
     def _analyze_entries(
         self, entries: Any, config_path: str, deps: list[str]
@@ -360,6 +375,8 @@ class CodeGenerator:
         self._lines: list[str] = list()
         self._mappings: list[SourceMapping] = list()
         self._entry_map: dict[str, Any] = dict()
+        self._indent = ""
+        self._constructor_targets: dict[str, Any] = dict()
 
         for component in analysis.components:
             self._entry_map[component.config_path] = component
@@ -379,12 +396,34 @@ class CodeGenerator:
         """
         Generate the full source code.
         """
+        for component in self._analysis.components:
+            if not component.is_func:
+                try:
+                    self._constructor_targets[component.import_path] = import_dotted_path(
+                        component.import_path
+                    )
+                except ImportResolutionError as exc:
+                    if exc.__cause__ is None or isinstance(exc.__cause__, AttributeError):
+                        self._constructor_targets[component.import_path] = None
+                    else:
+                        raise
+            else:
+                pass
+        async_construction = any(
+            inspect.iscoroutinefunction(target)
+            for target in self._constructor_targets.values()
+        )
         needs_asyncio = call_target is not None and self._is_async_call(
             call_target, call_method
         )
         self._emit_header(needs_asyncio=needs_asyncio)
         self._emit_imports()
         self._emit_blank()
+        if async_construction:
+            self._emit("async def __sygaldry_build():")
+            self._indent = "    "
+        else:
+            pass
         self._emit_entries()
         if call_target is not None:
             self._emit_blank()
@@ -395,7 +434,7 @@ class CodeGenerator:
         """
         Emit a line of code, optionally recording its config path.
         """
-        self._lines.append(line)
+        self._lines.append(self._indent + line)
         if config_path is not None:
             mapping = SourceMapping(line=len(self._lines), config_path=config_path)
             self._mappings.append(mapping)
@@ -443,17 +482,21 @@ class CodeGenerator:
         entry = self._entry_map.get(target)
         if not isinstance(entry, ComponentEntry):
             return False
-        try:
-            mod_path, cls_name = _split_import_path(entry.import_path)
-            mod = importlib.import_module(mod_path)
-            cls = getattr(mod, cls_name)
-            if method:
-                func = getattr(cls, method, None)
-            else:
-                func = getattr(cls, "__call__", None)
-            return inspect.iscoroutinefunction(func)
-        except Exception:
-            return False
+        target = self._constructor_targets.get(entry.import_path)
+        if target is None:
+            try:
+                target = import_dotted_path(entry.import_path)
+            except ImportResolutionError as exc:
+                if exc.__cause__ is None or isinstance(exc.__cause__, AttributeError):
+                    result = False
+                    return result
+                else:
+                    raise
+        else:
+            pass
+        func = getattr(target, method or "__call__", None)
+        result = inspect.iscoroutinefunction(func)
+        return result
 
     def _emit_call(
         self,
@@ -464,10 +507,13 @@ class CodeGenerator:
         """
         Emit a call expression at the end of the generated code.
         """
-        var_name = _to_identifier(target)
-        if entry := self._entry_map.get(target):
-            if isinstance(entry, (ComponentEntry, PlainEntry)):
-                var_name = entry.var_name
+        var_name = self._resolve_ref_source(target)
+        if (entry := self._entry_map.get(target)) and isinstance(
+            entry, (ComponentEntry, PlainEntry)
+        ):
+            var_name = entry.var_name
+        else:
+            pass
 
         is_async = self._is_async_call(target, method)
 
@@ -476,7 +522,9 @@ class CodeGenerator:
         args_str = ", ".join(arg_parts)
         call_expr = f"{callee}({args_str})"
 
-        if is_async:
+        if is_async and self._indent:
+            self._emit(f"await {call_expr}")
+        elif is_async:
             one_line = f"asyncio.run({call_expr})"
             if len(one_line) <= self._line_length or not arg_parts:
                 self._emit(one_line)
@@ -511,14 +559,18 @@ class CodeGenerator:
         for key, value in comp.kwargs.items():
             parts.append(f"{key}={self._value_to_source(value)}")
 
+        target = self._constructor_targets.get(comp.import_path)
+        annotation = f": {name}" if target is None or inspect.isclass(target) else ""
+        awaited = "await " if inspect.iscoroutinefunction(target) else ""
         comment = f"  # config: {comp.config_path}"
         args_str = ", ".join(parts)
-        one_line = f"{comp.var_name}: {name} = {name}({args_str}){comment}"
+        one_line = f"{comp.var_name}{annotation} = {awaited}{name}({args_str}){comment}"
         if len(one_line) <= self._line_length or not parts:
             self._emit(one_line, config_path=comp.config_path)
         else:
             self._emit(
-                f"{comp.var_name}: {name} = {name}({comment}", config_path=comp.config_path
+                f"{comp.var_name}{annotation} = {awaited}{name}({comment}",
+                config_path=comp.config_path,
             )
             for part in parts:
                 self._emit(f"    {part},")
@@ -553,9 +605,8 @@ class CodeGenerator:
                 self._emit(
                     f"{plain.var_name}: dict = {{{comment}", config_path=plain.config_path
                 )
-                for i, (k, v) in enumerate(items):
-                    suffix = ","
-                    self._emit(f"    {k}: {v}{suffix}")
+                for key, value in items:
+                    self._emit(f"    {key}: {value},")
                 self._emit("}")
         else:
             type_name = self._python_type_name(plain.value)
@@ -569,16 +620,31 @@ class CodeGenerator:
         Convert a ref target to a Python expression.
         """
         top, _, remainder = target.partition(".")
-        if entry := self._entry_map.get(top):
-            if isinstance(entry, (ComponentEntry, PlainEntry)):
-                var_name = entry.var_name
+        entry = self._entry_map.get(top)
+        expression = (
+            entry.var_name
+            if isinstance(entry, (ComponentEntry, PlainEntry))
+            else _to_identifier(top)
+        )
+        current = entry.value if isinstance(entry, PlainEntry) else None
+        for segment in remainder.split(".") if remainder else []:
+            if isinstance(current, RefExpression):
+                referenced = self._entry_map.get(current.target)
+                current = referenced.value if isinstance(referenced, PlainEntry) else None
             else:
-                var_name = _to_identifier(top)
-        else:
-            var_name = _to_identifier(top)
-        if remainder:
-            return f"{var_name}.{remainder}"
-        return var_name
+                pass
+            if isinstance(current, dict) and segment in current:
+                expression += f"[{segment!r}]"
+                current = current[segment]
+            elif (
+                isinstance(current, list) and segment.isdigit() and int(segment) < len(current)
+            ):
+                expression += f"[{int(segment)}]"
+                current = current[int(segment)]
+            else:
+                expression += f".{segment}"
+                current = None
+        return expression
 
     def _value_to_source(self, value: Any) -> str:
         """
@@ -610,7 +676,7 @@ class CodeGenerator:
             )
             return f"{{{items}}}"
         else:
-            return repr(value)
+            return "..."
 
     @staticmethod
     def _python_type_name(value: Any) -> str:
@@ -655,11 +721,15 @@ def generate_check_source(
     :type line_length: int
     :returns: ``(source_code, mappings)`` tuple.
     """
-    analyzer = ConfigAnalyzer(config)
+    analyzer = ConfigAnalyzer(safe_codegen_data(config))
     result = analyzer.analyze()
     generator = CodeGenerator(result, line_length=line_length)
     return generator.generate(
         call_target=call_target,
         call_method=call_method,
-        call_args=call_args,
+        call_args=safe_codegen_data(call_args),
     )
+
+
+if __name__ == "__main__":
+    pass

@@ -637,3 +637,44 @@ def test_codegen_sync_call_no_asyncio():
     assert "import asyncio" not in source
     assert "asyncio.run" not in source
     assert "greeter.greet(" in source
+
+
+def test_codegen_refs_use_mapping_keys_and_list_indexes():
+    """
+    Given: A reference traversing a nested plain mapping and list.
+    When:  Generating type-checking source.
+    Then:  The generated expression matches runtime lookup rules.
+    """
+    source = _source_for({"group": {"values": [1, 2]}, "alias": {"_ref": "group.values.1"}})
+    assert "alias = group['values'][1]" in source
+
+
+def test_codegen_awaits_async_constructors():
+    """
+    Given: An async factory used as a constructor.
+    When:  Generating type-checking source.
+    Then:  The returned component is awaited inside an async function.
+    """
+    source = _source_for({"resource": {"_type": "tests.components.create_resource"}})
+    assert "async def __sygaldry_build():" in source
+    assert "resource = await create_resource()" in source
+
+
+def test_codegen_hoists_components_inside_plain_dicts():
+    """
+    Given: A plain mapping containing a constructor and a ref to its attribute.
+    When:  Generating source.
+    Then:  The child is constructed before the mapping and lookup follows that mapping.
+    """
+    source = _source_for(
+        {
+            "group": {"resource": {"_type": "tests.components.Plain"}},
+            "alias": {"_ref": "group.resource.table"},
+        }
+    )
+    assert "alias = group['resource'].table" in source
+    assert source.index("= Plain(") < source.index("group: dict")
+
+
+if __name__ == "__main__":
+    pass

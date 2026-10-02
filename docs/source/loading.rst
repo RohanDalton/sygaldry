@@ -84,8 +84,12 @@ Supported forms
 Type coercion
 -------------
 
-If the entire string is replaced by a single placeholder, Sygaldry will try to
-coerce the value to a scalar type (int, float, bool, or None).
+Whole-value config references preserve the referenced value's existing type,
+including quoted numeric strings. Environment values and literal defaults
+coerce canonical numbers, booleans, and null values. Zero-prefixed identifiers
+such as ``000123`` and ``037833100`` remain strings in YAML, interpolation,
+and CLI overrides. Quote numeric strings in TOML, whose parser rejects
+unquoted numbers with leading zeros.
 
 Example
 -------
@@ -96,3 +100,50 @@ Example
      host: "localhost"
      port: "${DB_PORT:-5432}"
    url: "postgres://${db.host}:${db.port}/app"
+
+In-memory configs and source locations
+======================================
+
+``Artificery(config=...)`` follows the same uses, overrides, and interpolation
+pipeline as file inputs. Preparing a config copies its containers without
+mutating the supplied mapping or copying supplied application objects.
+
+Diagnostics track the file defining each value through includes and layered
+merges. An overlay changing another field does not relabel an earlier field's
+error. Programmatic input uses ``source`` or ``<config>``; explicit overrides
+use ``<override>``.
+
+Secret values
+=============
+
+Common credential field names are protected automatically. Mark confidential
+values under other names explicitly, including values passed in memory:
+
+.. code-block:: yaml
+
+   service:
+     _type: myapp.Service
+     password: confidential
+     identifier:
+       _secret: confidential-value
+
+.. code-block:: python
+
+   from sygaldry import Artificery, Secret
+
+   runtime = Artificery(config={"private_value": Secret("confidential")})
+
+All environment-derived values are protected, and their protection propagates
+through config references and composed strings. Protected values remain
+``Secret`` markers in ``config`` and are unwrapped when delivered to
+constructors or resolved values. Their displayed representation is
+``<redacted>``. Secret values cannot be mapping keys because paths and key
+names appear in diagnostics.
+
+``show``, ``show --raw``, ``show --resolved``, and ``run --dry-run`` mask
+protected values. Generated type-checking source substitutes harmless values
+of matching primitive types. Secrets therefore never enter the checker's
+source file. Literal-dependent overload checks may differ when a placeholder
+is substituted. Checker files are private and removed even if the checker
+fails or times out. Application code still receives real secret values and
+is responsible for its own logging.

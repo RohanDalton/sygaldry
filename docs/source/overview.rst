@@ -22,8 +22,8 @@ Component definition
   returns a callable without invoking it.
 
 References
-  A mapping of the form ``{_ref: "target"}`` points at another top-level entry
-  or a dotted attribute on that entry.
+  A mapping of the form ``{_ref: "target"}`` points at another config node.
+  Dotted paths traverse nested mappings, sequences, and object attributes.
 
 Determinism
   Nested values are resolved depth-first. Child components are instantiated

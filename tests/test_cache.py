@@ -8,7 +8,7 @@ from sygaldry.errors import ConfigConflictError
 
 def test_cache_reuses_instance_for_same_spec():
     """
-    GIVEN: The same constructor spec used twice.
+    GIVEN: The same explicitly named constructor spec used twice.
     WHEN:  Resolving via the cache.
     THEN:  The same instance is returned both times.
     """
@@ -20,8 +20,8 @@ def test_cache_reuses_instance_for_same_spec():
         created.append(obj)
         return obj
 
-    first = cache.get_or_create("demo.Type", None, (), {"a": 1}, factory)
-    second = cache.get_or_create("demo.Type", None, (), {"a": 1}, factory)
+    first = cache.get_or_create("demo.Type", "primary", (), {"a": 1}, factory)
+    second = cache.get_or_create("demo.Type", "primary", (), {"a": 1}, factory)
 
     assert first is second
     assert created == [first]

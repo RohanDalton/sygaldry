@@ -7,7 +7,7 @@ import code
 import inspect
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import rich_click as click
 import yaml
@@ -17,8 +17,9 @@ from rich.syntax import Syntax
 from .artificery import Artificery
 from .checker import check as run_check
 from .codegen import generate_check_source
-from .configuration import _infer_scalar, _is_url
+from .configuration import _MISSING, _get_by_path, _infer_scalar, _is_url
 from .errors import CLIError, SygaldryError
+from .secrets import protect_secrets, redact, reveal, safe_display
 
 _console = Console(stderr=True)
 
@@ -68,6 +69,7 @@ def _build_artificery(
     *,
     cache: Any | None = None,
     transient: bool = False,
+    strict: bool = True,
 ) -> Artificery:
     """
     Build an Artificery from CLI options.
@@ -76,7 +78,7 @@ def _build_artificery(
     :param set_overrides: ``--set`` option values.
     :param use_overrides: ``--use`` option values.
     :param cache: Optional instance cache.
-    :param transient: If True, bypass caching.
+    :param transient: Isolate named sharing from a supplied cache; refs keep identity.
     :returns: Configured Artificery instance.
     """
     overrides: dict[str, Any] = dict()
@@ -95,6 +97,7 @@ def _build_artificery(
         uses=uses or None,
         cache=cache,
         transient=transient,
+        strict=strict,
     )
 
 
@@ -110,7 +113,7 @@ def _extract_call_defaults(
     :type object_key: str
     :returns: ``(method_name_or_None, args_list)`` pair.
     """
-    obj_config = config.get(object_key)
+    obj_config = _get_by_path(config, object_key)
     if not isinstance(obj_config, dict):
         return None, list()
     call = obj_config.get("_call")
@@ -134,44 +137,42 @@ def _parse_method_args(raw_args: tuple[str, ...]) -> list[Any]:
     return [_infer_scalar(arg) for arg in raw_args]
 
 
-def _invoke_target(obj: Any, method_name: str | None, args: list[Any]) -> Any:
-    """
-    Call a method or the object itself.
-
-    :param obj: Resolved target object.
-    :param method_name: Method to call, or None for ``__call__``.
-    :param args: Positional arguments.
-    :type obj: object
-    :type method_name: str | None
-    :type args: list
-    :returns: Return value of the call.
-    :raises CLIError: If the object is not callable or method is missing.
-    """
+async def _ainvoke_target(obj: Any, method_name: str | None, args: list[Any]) -> Any:
     if method_name is not None:
         if not hasattr(obj, method_name):
-            raise CLIError(
-                f"Object {type(obj).__name__!r} has no method '{method_name}'. "
-                f"Available attributes: {sorted(a for a in dir(obj) if not a.startswith('_'))}"
-            )
+            raise CLIError(f"Object {type(obj).__name__!r} has no method '{method_name}'.")
         else:
             target = getattr(obj, method_name)
-            if not callable(target):
-                raise CLIError(
-                    f"Attribute '{method_name}' on {type(obj).__name__!r} is not callable."
-                )
-            else:
-                if inspect.iscoroutinefunction(target):
-                    return asyncio.run(target(*args))
-                return target(*args)
     else:
-        if not callable(obj):
-            raise CLIError(
-                f"Object {type(obj).__name__!r} is not callable and no --method was specified."
-            )
+        target = obj
+    if not callable(target):
+        raise CLIError("The selected object or attribute is not callable.")
+    else:
+        result = target(*reveal(args))
+    if inspect.isawaitable(result):
+        result = await result
+    else:
+        pass
+    return result
 
-        if inspect.iscoroutinefunction(getattr(obj, "__call__", obj)):
-            return asyncio.run(obj(*args))
-        return obj(*args)
+
+def _invoke_target(obj: Any, method_name: str | None, args: list[Any]) -> Any:
+    result = asyncio.run(_ainvoke_target(obj, method_name, args))
+    return result
+
+
+async def _run_managed(artificery: Artificery, key: str, method: str | None, args: list[Any]):
+    async with artificery:
+        target = await artificery.aresolve(key)
+        result = await _ainvoke_target(target, method, args)
+    return result
+
+
+async def _show_managed(artificery: Artificery, key: str | None):
+    async with artificery:
+        value = await artificery.aresolve(key)
+        display = safe_display(value, artificery.config)
+    return display
 
 
 def _format_config_yaml(config: Any) -> str:
@@ -182,7 +183,10 @@ def _format_config_yaml(config: Any) -> str:
     :type config: object
     :returns: YAML string.
     """
-    return yaml.dump(config, default_flow_style=False, sort_keys=False)
+    formatted = yaml.safe_dump(
+        redact(protect_secrets(config)), default_flow_style=False, sort_keys=False
+    )
+    return formatted
 
 
 def _print_dry_run(
@@ -210,11 +214,11 @@ def _print_dry_run(
     _console.print(f"  Method:       {call_desc}")
 
     if args:
-        _console.print(f"  Args:         {args}")
+        _console.print(f"  Args:         {redact(args)}")
     else:
         _console.print("  Args:         (none)")
 
-    obj_config = config.get(object_key, {})
+    obj_config = _get_by_path(config, object_key)
     if isinstance(obj_config, dict):
         _console.print()
         _console.print(f"  [bold]Config for '{object_key}':[/bold]")
@@ -245,6 +249,11 @@ def _config_options(func):
     """
     Shared options for config loading, --set, and --use.
     """
+    func = click.option(
+        "--strict/--no-strict",
+        default=True,
+        help="Reject unknown constructor arguments (default: strict).",
+    )(func)
     func = click.option(
         "-c",
         "--config",
@@ -299,6 +308,7 @@ def run(
     config_paths: tuple[Path, ...],
     set_overrides: tuple[str, ...],
     use_overrides: tuple[str, ...],
+    strict: bool,
     object_key: str,
     method_name: str | None,
     dry_run: bool,
@@ -310,27 +320,18 @@ def run(
     Load config, resolve an object, and call it.
     """
     try:
-        art = _build_artificery(config_paths, set_overrides, use_overrides)
+        art = _build_artificery(config_paths, set_overrides, use_overrides, strict=strict)
         call_method, call_args = _extract_call_defaults(art.config, object_key)
 
         final_method = method_name if method_name is not None else call_method
         final_args = _parse_method_args(method_args) if method_args else call_args
 
         if dry_run:
+            art.validate(object_key)
             _print_dry_run(config_paths, object_key, final_method, final_args, art.config)
             return
         else:
-            resolved = art.resolve()
-
-            if object_key not in resolved:
-                available = sorted(resolved.keys())
-                raise CLIError(
-                    f"Object '{object_key}' not found in resolved config. "
-                    f"Available keys: {available}"
-                )
-
-            target = resolved[object_key]
-            result = _invoke_target(target, final_method, final_args)
+            result = asyncio.run(_run_managed(art, object_key, final_method, final_args))
 
             if isinstance(result, int):
                 raise SystemExit(result)
@@ -354,7 +355,7 @@ def run(
     "--object",
     "object_key_opt",
     default=None,
-    help="Show only this top-level key (also accepted as a positional argument).",
+    help="Show only this dotted config key (also accepted as a positional argument).",
 )
 @click.option(
     "--method",
@@ -405,6 +406,7 @@ def show(
     config_paths: tuple[Path, ...],
     set_overrides: tuple[str, ...],
     use_overrides: tuple[str, ...],
+    strict: bool,
     object_key: str | None,
     object_key_opt: str | None,
     method_name: str | None,
@@ -426,7 +428,7 @@ def show(
     """
     object_key = object_key or object_key_opt
     try:
-        art = _build_artificery(config_paths, set_overrides, use_overrides)
+        art = _build_artificery(config_paths, set_overrides, use_overrides, strict=strict)
 
         if list_objects:
             for key in sorted(art.config.keys()):
@@ -434,28 +436,24 @@ def show(
             return
 
         if resolved:
-            output = art.resolve()
+            output = asyncio.run(_show_managed(art, object_key))
             if object_key:
-                if object_key not in output:
-                    available = sorted(output.keys())
-                    raise CLIError(
-                        f"Object '{object_key}' not found. Available keys: {available}"
-                    )
-                click.echo(repr(output[object_key]))
+                click.echo(repr(output))
             else:
                 for key, value in output.items():
                     click.echo(f"{key}: {repr(value)}")
             return
 
         if raw:
-            display = art.config
+            display = redact(art.config)
             if object_key:
-                if object_key not in display:
-                    available = sorted(display.keys())
-                    raise CLIError(
-                        f"Object '{object_key}' not found. Available keys: {available}"
-                    )
-                display = display[object_key]
+                display = _get_by_path(display, object_key)
+                if display is _MISSING:
+                    raise CLIError(f"Object '{object_key}' not found.")
+                else:
+                    pass
+            else:
+                pass
 
             if output_format == "json":
                 text = json.dumps(display, indent=2, default=str)
@@ -501,12 +499,13 @@ def validate(
     config_paths: tuple[Path, ...],
     set_overrides: tuple[str, ...],
     use_overrides: tuple[str, ...],
+    strict: bool,
 ) -> None:
     """
     Validate config without executing.
     """
     try:
-        _build_artificery(config_paths, set_overrides, use_overrides).resolve()
+        _build_artificery(config_paths, set_overrides, use_overrides, strict=strict).validate()
         _console.print("[bold green]Config is valid.[/bold green]")
 
     except SygaldryError as exc:
@@ -528,6 +527,7 @@ def check(
     config_paths: tuple[Path, ...],
     set_overrides: tuple[str, ...],
     use_overrides: tuple[str, ...],
+    strict: bool,
     type_checker: str | None,
     verbose: bool,
 ) -> None:
@@ -536,7 +536,7 @@ def check(
     """
 
     try:
-        art = _build_artificery(config_paths, set_overrides, use_overrides)
+        art = _build_artificery(config_paths, set_overrides, use_overrides, strict=strict)
 
         errors = run_check(config=art.config, type_checker=type_checker)
 
@@ -567,13 +567,14 @@ def interactive(
     config_paths: tuple[Path, ...],
     set_overrides: tuple[str, ...],
     use_overrides: tuple[str, ...],
+    strict: bool,
     verbose: bool,
 ) -> None:
     """
     Start an interactive Python session with the Artificery loaded.
     """
     try:
-        art = _build_artificery(config_paths, set_overrides, use_overrides)
+        art = _build_artificery(config_paths, set_overrides, use_overrides, strict=strict)
         # Eagerly prepare the config so errors surface before the REPL starts.
         _ = art.config
 
@@ -605,11 +606,21 @@ def interactive(
 
     try:
         from IPython import start_ipython
+    except ModuleNotFoundError as error:
+        if error.name != "IPython":
+            raise
+        else:
+            start_ipython = None
+    else:
+        pass
 
-        start_ipython(argv=[], user_ns=namespace, display_banner=False)
-    except ImportError:
-        code.interact(banner=banner, local=namespace, exitmsg="")
+    with art:
+        if start_ipython is None:
+            code.interact(banner=banner, local=namespace, exitmsg="")
+        else:
+            start_ipython(argv=[], user_ns=namespace, display_banner=False)
 
 
 if __name__ == "__main__":
     cli()
+    pass

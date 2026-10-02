@@ -6,14 +6,16 @@ from __future__ import annotations
 
 __author__ = "Rohan B. Dalton"
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Callable
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from .errors import ConfigConflictError
+from .errors import ConfigConflictError, LifecycleError
 
 _NOT_FOUND = object()
 
@@ -101,11 +103,12 @@ class CacheEntry:
 
     value: Any
     spec_hash: str
+    owner: Any = None
 
 
 class Instances:
     """
-    Per-factory cache keyed by (type_path, instance tag or spec hash).
+    Explicitly shared instances keyed by type path and instance tag.
     """
 
     def __init__(self) -> None:
@@ -113,6 +116,93 @@ class Instances:
         Initialize an empty cache.
         """
         self._entries: dict[tuple[str, str | None, str | None], CacheEntry] = dict()
+        self._creation_locks: dict[tuple[str, str], asyncio.Lock] = dict()
+        self._pending: dict[tuple[str, str], tuple[Any, str]] = dict()
+        self._stack = AsyncExitStack()
+        self._scope_active = False
+        self._closed = False
+        self._sync_loop: asyncio.AbstractEventLoop | None = None
+        self._resource_loop: asyncio.AbstractEventLoop | None = None
+
+    @property
+    def closed(self) -> bool:
+        result = self._closed
+        return result
+
+    def __enter__(self):
+        if self._closed or self._scope_active:
+            raise LifecycleError("A shared cache scope cannot be reused or nested.")
+        else:
+            self._scope_active = True
+        result = self
+        return result
+
+    async def __aenter__(self):
+        result = self.__enter__()
+        return result
+
+    def _bind_resource_loop(self):
+        loop = asyncio.get_running_loop()
+        if self._resource_loop is None:
+            self._resource_loop = loop
+        elif self._resource_loop is not loop:
+            raise LifecycleError(
+                "Shared resources must be constructed and used on the cache's event loop."
+            )
+        else:
+            pass
+
+    def _run_sync(self, awaitable):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            awaitable.close()
+            raise LifecycleError("Use the async API inside an active event loop.")
+        if self._sync_loop is None:
+            self._sync_loop = asyncio.new_event_loop()
+        else:
+            pass
+        result = self._sync_loop.run_until_complete(awaitable)
+        return result
+
+    def _close_loop(self):
+        if self._sync_loop is not None:
+            try:
+                self._sync_loop.run_until_complete(self._sync_loop.shutdown_asyncgens())
+            finally:
+                self._sync_loop.close()
+                self._sync_loop = None
+        else:
+            pass
+
+    def __exit__(self, exception_type, exception, traceback):
+        try:
+            result = self._run_sync(self.__aexit__(exception_type, exception, traceback))
+        finally:
+            self._close_loop()
+        return result
+
+    async def __aexit__(self, exception_type, exception, traceback):
+        try:
+            result = await self._stack.__aexit__(exception_type, exception, traceback)
+        finally:
+            self._closed = True
+            self._scope_active = False
+        return result
+
+    def close(self):
+        try:
+            self._run_sync(self.aclose())
+        finally:
+            self._close_loop()
+
+    async def aclose(self):
+        if self._closed:
+            pass
+        else:
+            await self.__aexit__(None, None, None)
 
     @staticmethod
     def _cache_key(
@@ -150,7 +240,7 @@ class Instances:
         :rtype: object
         :raises ConfigConflictError: If the cached hash conflicts.
         """
-        if instance is None and expected_hash is None:
+        if instance is None:
             return _NOT_FOUND
         key = self._cache_key(type_path, instance, expected_hash)
         entry = self._entries.get(key)
@@ -166,6 +256,14 @@ class Instances:
                 file_path=file_path,
                 config_path=config_path,
             )
+        if entry.owner is not None and entry.owner.closed:
+            raise LifecycleError(
+                f"The cache owning shared instance '{instance}' has closed.",
+                file_path=file_path,
+                config_path=config_path,
+            )
+        else:
+            pass
         return entry.value
 
     def set(
@@ -175,6 +273,7 @@ class Instances:
         value: Any,
         *,
         spec_hash: str,
+        owner: Any = None,
         file_path: str | None = None,
         config_path: str | None = None,
     ) -> Any:
@@ -197,6 +296,10 @@ class Instances:
         :rtype: object
         :raises ConfigConflictError: If an existing entry conflicts.
         """
+        if instance is None:
+            return value
+        else:
+            pass
         key = self._cache_key(type_path, instance, spec_hash)
         entry = self._entries.get(key)
         if instance is not None and entry is not None and entry.spec_hash != spec_hash:
@@ -205,8 +308,52 @@ class Instances:
                 file_path=file_path,
                 config_path=config_path,
             )
-        self._entries[key] = CacheEntry(value=value, spec_hash=spec_hash)
+        self._entries[key] = CacheEntry(value=value, spec_hash=spec_hash, owner=owner)
         return value
+
+    @asynccontextmanager
+    async def claim(
+        self,
+        type_path: str,
+        instance: str,
+        spec_hash: str,
+        *,
+        file_path=None,
+        config_path=None,
+    ):
+        key = (type_path, instance)
+        task = asyncio.current_task()
+        pending = self._pending.get(key)
+        if pending is not None and (pending[0] is task or pending[1] != spec_hash):
+            raise ConfigConflictError(
+                f"Conflicting or recursive construction of named instance '{instance}'.",
+                file_path=file_path,
+                config_path=config_path,
+            )
+        else:
+            pass
+        async with self.creation_lock(type_path, instance):
+            self._pending[key] = (task, spec_hash)
+            try:
+                yield
+            finally:
+                del self._pending[key]
+
+    def creation_lock(self, type_path: str, instance: str) -> asyncio.Lock:
+        """Serialize named creation so concurrent runtimes cannot open duplicates."""
+        key = (type_path, instance)
+        if key not in self._creation_locks:
+            self._creation_locks[key] = asyncio.Lock()
+        else:
+            pass
+        lock = self._creation_locks[key]
+        return lock
+
+    def owner(self, type_path: str, instance: str) -> Any:
+        """Return the cache that owns cleanup for an explicitly shared resource."""
+        entry = self._entries.get(self._cache_key(type_path, instance, None))
+        owner = entry.owner if entry is not None else None
+        return owner
 
     def get_or_create(
         self,
@@ -242,8 +389,11 @@ class Instances:
         :returns: Cached or newly created instance.
         :rtype: object
         """
-        if transient:
-            return factory()
+        if transient or instance is None:
+            value = factory()
+            return value
+        else:
+            pass
 
         spec_hash = _canonical_hash(args, kwargs)
         existing = self.get(

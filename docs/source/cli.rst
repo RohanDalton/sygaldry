@@ -115,7 +115,7 @@ Options
 -------
 
 ``--object``
-  Show only this top-level key instead of the full config.
+  Show only this dotted config key instead of the full config.
 
 ``--format`` *(yaml or json, default: yaml)*
   Output format. Use ``json`` for piping to ``jq`` or other tools.
@@ -147,8 +147,9 @@ validate
 
    sygaldry validate -c CONFIG [--set K=V] [--use K=K]
 
-Loads, merges, interpolates, and resolves the full config. Prints a success
-message if valid, or an error with context if not. Useful for CI pipelines.
+Loads and prepares the config, then validates schemas, references, imports,
+and signatures without constructing components or opening resources. Prints
+a success message if valid, or a contextual error. Useful for CI pipelines.
 
 .. code-block:: bash
 
@@ -292,9 +293,27 @@ The CLI processes config in this order:
 #. **Apply** ``--set`` overrides (explicit values win last).
 #. **Interpolate** ``${...}`` placeholders.
 #. **Extract** ``_call`` defaults for the target object.
-#. **Resolve** component definitions into live objects.
-#. **Call** the selected method with the final arguments.
+#. **Resolve** only the selected object and its dependencies in a managed runtime.
+#. **Call** the selected method with the final arguments, awaiting async calls.
+#. **Close** owned resources when the call finishes or fails.
 
 Because ``--set`` and ``--use`` are applied before interpolation, any
 ``${...}`` references elsewhere in the config will pick up the overridden
 values.
+
+
+Strict arguments and protected output
+=====================================
+
+All config commands accept the constructor policy and default to ``--strict``. Unknown constructor arguments
+raise errors before construction. ``--no-strict`` enables compatibility mode,
+which warns and drops them.
+
+``run --dry-run`` validates the selected dependency graph without construction.
+``run`` opens a runtime scope, constructs only the selected key and its
+dependencies, awaits its result, and closes owned resources before exiting.
+Secret values are redacted in config displays, dry runs, and generated Python.
+Resolved displays summarize application objects without invoking their repr.
+
+The interactive command keeps a runtime scope open throughout the Python
+session and closes its managed resources when the session exits.

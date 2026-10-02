@@ -6,7 +6,8 @@ Reserved keys
 =============
 
 ``_type`` (str)
-  Fully-qualified dotted path to a class to instantiate.
+  Fully-qualified dotted path to a class or factory to invoke. Awaitable
+  construction results are awaited.
 
 ``_func`` (str)
   Fully-qualified dotted path to a callable. The callable is returned, not invoked.
@@ -20,11 +21,11 @@ Reserved keys
   conflict with reserved keys.
 
 ``_instance`` (str)
-  Instance tag used to disambiguate cache entries. If omitted, caching
-  is keyed by the constructor spec hash instead.
+  Explicit sharing tag, scoped to the instance cache. Untagged nodes remain
+  independent even when their specs are identical.
 
 ``_ref`` (str)
-  Reference to a top-level entry (optionally with dotted attributes).
+  Dotted path through mapping keys, sequence indexes, or object attributes.
 
 ``_deep`` (bool)
   If ``false``, the resolver returns the dict as-is without recursion.
@@ -40,6 +41,14 @@ Reserved keys
 ``_call`` (dict)
   Default method and arguments for the CLI. Contains optional keys
   ``method`` (str) and ``args`` (list). See :doc:`cli`.
+
+``_lifecycle`` (str)
+  Ownership policy: ``auto``, ``context``, ``close``, or ``external``. See
+  :doc:`resolver` for managed runtime scopes.
+
+``_secret`` (value)
+  Protect a confidential value: ``{_secret: value}``. It must be the only key
+  in that marker mapping. Constructors receive the actual value.
 
 Rules
 =====

@@ -8,9 +8,8 @@ import os
 import re
 import tempfile
 import urllib.request
-from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -21,6 +20,7 @@ from .errors import (
     InterpolationError,
     ParseError,
 )
+from .secrets import Secret, reveal
 
 try:
     import tomllib  # type: ignore
@@ -29,9 +29,47 @@ except ImportError:  # pragma: no cover - fallback only
 
 _MISSING = object()
 
-_INTEGER_RE = re.compile(r"^(?P<integer>[-+]?\d+)$")
+_INTEGER_RE = re.compile(r"^(?P<integer>[-+]?(?:0|[1-9]\d*))$")
 _FLOAT_RE = re.compile(r"^(?P<float>[-+]?\d*\.\d+(?:[eE][-+]?\d+)?)$")
 _SCI_INT_RE = re.compile(r"^(?P<sci_int>[-+]?\d+[eE][-+]?\d+)$")
+
+
+class _ConfigSafeLoader(yaml.SafeLoader):
+    """Retain zero-prefixed identifiers rather than interpreting them as octal."""
+
+
+_ConfigSafeLoader.yaml_implicit_resolvers = {
+    key: [(tag, pattern) for tag, pattern in resolvers if tag != "tag:yaml.org,2002:int"]
+    for key, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+_ConfigSafeLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:int", re.compile(r"^[-+]?(?:0|[1-9][0-9_]*)$"), list("-+0123456789")
+)
+
+
+def _record_sources(
+    value: Any,
+    sources: dict[tuple[str, ...], str],
+    source: str,
+    path: tuple[str, ...] = tuple(),
+) -> None:
+    if not isinstance(value, dict):
+        for existing_path in list(sources):
+            if existing_path[: len(path)] == path:
+                del sources[existing_path]
+            else:
+                pass
+    else:
+        pass
+    sources[path] = source
+    if isinstance(value, dict):
+        for key, child in value.items():
+            _record_sources(child, sources, source, path + (str(key),))
+    elif isinstance(value, (list, tuple)):
+        for index, child in enumerate(value):
+            _record_sources(child, sources, source, path + (str(index),))
+    else:
+        pass
 
 
 def _is_url(path: str | Path) -> bool:
@@ -78,7 +116,12 @@ def _maybe_download(path: str | Path) -> Path:
 
 
 def _load_with_includes(
-    path: Path, ancestors: list[Path], visited: set[Path]
+    path: Path,
+    ancestors: list[Path],
+    visited: set[Path],
+    *,
+    sources: dict[tuple[str, ...], str] | None = None,
+    source_label: str | None = None,
 ) -> dict[str, Any]:
     """
     Load a file and recursively apply includes.
@@ -97,6 +140,7 @@ def _load_with_includes(
     :raises CircularIncludeError: If a circular include is detected.
     """
     path = path.expanduser().resolve()
+    source_label = source_label or str(path)
     if path in ancestors:
         chain_display = " -> ".join(str(p) for p in ancestors + [path])
         raise CircularIncludeError(
@@ -107,7 +151,7 @@ def _load_with_includes(
         return dict()
 
     visited.add(path)
-    raw = _load_file(path)
+    raw = _load_file(path, source_label=source_label)
     includes = raw.pop("_include", None)
     merged: dict[str, Any] = dict()
     child_ancestors = ancestors + [path]
@@ -117,10 +161,26 @@ def _load_with_includes(
             raise IncludeError("_include must be a list of file paths.", file_path=str(path))
         for include in includes:
             include_path = _resolve_include(path, include)
-            data = _load_with_includes(include_path, child_ancestors, visited)
-            merged = _deep_merge(merged, data)
+            try:
+                data = _load_with_includes(
+                    include_path,
+                    child_ancestors,
+                    visited,
+                    sources=sources,
+                    source_label=include if _is_url(include) else None,
+                )
+                merged = _deep_merge(merged, data)
+            finally:
+                if _is_url(include):
+                    include_path.unlink(missing_ok=True)
+                else:
+                    pass
 
     raw = _expand_dotted_keys(raw)
+    if sources is not None:
+        _record_sources(raw, sources, source_label)
+    else:
+        pass
     merged = _deep_merge(merged, raw)
     return merged
 
@@ -177,7 +237,7 @@ def _expand_dotted_keys(data: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _load_file(path: Path) -> dict[str, Any]:
+def _load_file(path: Path, *, source_label: str | None = None) -> dict[str, Any]:
     """
     Load a YAML or TOML file into a mapping.
 
@@ -187,21 +247,28 @@ def _load_file(path: Path) -> dict[str, Any]:
     :rtype: dict[str, Any]
     :raises ParseError: If reading or parsing fails.
     """
+    source_label = source_label or str(path)
     suffix = path.suffix.lower()
     try:
         content = path.read_text(encoding="utf-8")
-    except Exception as exc:
-        raise ParseError(f"Failed to read config file: {path}", file_path=str(path)) from exc
+    except (OSError, UnicodeError) as exc:
+        raise ParseError("Failed to read config file.", file_path=source_label) from exc
 
     if suffix in {".yaml", ".yml"}:
-        data = yaml.safe_load(content) or dict()
+        try:
+            data = yaml.load(content, Loader=_ConfigSafeLoader) or dict()  # noqa: S506
+        except yaml.YAMLError as exc:
+            raise ParseError("Invalid YAML configuration.", file_path=source_label) from exc
     elif suffix == ".toml":
-        data = tomllib.loads(content) or dict()
+        try:
+            data = tomllib.loads(content) or dict()
+        except tomllib.TOMLDecodeError as exc:
+            raise ParseError("Invalid TOML configuration.", file_path=source_label) from exc
     else:
-        raise ParseError(f"Unsupported config format: {suffix}", file_path=str(path))
+        raise ParseError(f"Unsupported config format: {suffix}", file_path=source_label)
 
     if not isinstance(data, dict):
-        raise ParseError("Top-level config must be a mapping.", file_path=str(path))
+        raise ParseError("Top-level config must be a mapping.", file_path=source_label)
     return data
 
 
@@ -225,7 +292,12 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return result
 
 
-def _interpolate_config(config: dict[str, Any], *, file_path: str | None) -> dict[str, Any]:
+def _interpolate_config(
+    config: dict[str, Any],
+    *,
+    file_path: str | None,
+    sources: dict[tuple[str, ...], str] | None = None,
+) -> dict[str, Any]:
     """
     Apply string interpolation to a config mapping.
 
@@ -236,8 +308,9 @@ def _interpolate_config(config: dict[str, Any], *, file_path: str | None) -> dic
     :returns: Interpolated mapping.
     :rtype: dict[str, Any]
     """
-    resolver = _InterpolationResolver(config, file_path=file_path)
-    return resolver.resolve_value(config, path=[])
+    resolver = _InterpolationResolver(config, file_path=file_path, sources=sources)
+    resolved = resolver.resolve_value(config, path=[])
+    return resolved
 
 
 class _InterpolationResolver:
@@ -245,7 +318,13 @@ class _InterpolationResolver:
     Interpolation resolver for config mappings.
     """
 
-    def __init__(self, raw: dict[str, Any], *, file_path: str | None) -> None:
+    def __init__(
+        self,
+        raw: dict[str, Any],
+        *,
+        file_path: str | None,
+        sources: dict[tuple[str, ...], str] | None = None,
+    ) -> None:
         """
         Initialize the resolver.
 
@@ -256,8 +335,19 @@ class _InterpolationResolver:
         """
         self._raw = raw
         self._file_path = file_path
+        self._sources = sources or dict()
         self._cache: dict[str, Any] = dict()
         self._visiting: list[str] = list()
+
+    def _source_for(self, path: list[str]) -> str | None:
+        for length in range(len(path), -1, -1):
+            if source := self._sources.get(tuple(path[:length])):
+                return source
+            else:
+                pass
+        else:  # noqa: PLW0120
+            source = self._file_path
+            return source
 
     def resolve_value(self, value: Any, *, path: list[str]) -> Any:
         """
@@ -270,7 +360,10 @@ class _InterpolationResolver:
         :returns: Resolved value.
         :rtype: object
         """
-        if isinstance(value, dict):
+        if isinstance(value, Secret):
+            resolved = Secret(reveal(self.resolve_value(value.value, path=path)))
+            return resolved
+        elif isinstance(value, dict):
             resolved = self._resolve_dict(value, path)
             return resolved
         elif isinstance(value, list):
@@ -307,7 +400,13 @@ class _InterpolationResolver:
             new_key = (
                 self.resolve_value(key, path=path + ["<key>"]) if isinstance(key, str) else key
             )
-            if isinstance(new_key, str):
+            if isinstance(new_key, Secret):
+                raise InterpolationError(
+                    "Secret values cannot be used as configuration keys.",
+                    file_path=self._source_for(path),
+                    config_path=".".join(path),
+                )
+            elif isinstance(new_key, str):
                 key_path = path + [new_key]
             else:
                 key_path = path + ["<key>"]
@@ -315,7 +414,7 @@ class _InterpolationResolver:
             if new_key in resolved:
                 raise InterpolationError(
                     f"Interpolated key collision for '{new_key}'.",
-                    file_path=self._file_path,
+                    file_path=self._source_for(path),
                     config_path=".".join(path),
                 )
             resolved[new_key] = new_val
@@ -340,11 +439,10 @@ class _InterpolationResolver:
 
         if has_token and not has_text and len(parts) == 1 and parts[0][0] == "token":
             resolved = self._resolve_placeholder(parts[0][1].strip(), path)
-            if isinstance(resolved, str):
-                return _infer_scalar(resolved)
             return resolved
 
         combined_parts: list[str] = list()
+        has_secret = False
         for kind, payload in parts:
             if kind == "text":
                 combined_parts.append(payload)
@@ -353,11 +451,14 @@ class _InterpolationResolver:
             if isinstance(resolved, dict) and "_ref" in resolved:
                 raise InterpolationError(
                     "'${ref:...}' cannot be embedded in a string.",
-                    file_path=self._file_path,
+                    file_path=self._source_for(path),
                     config_path=".".join(path),
                 )
-            combined_parts.append(str(resolved))
-        return "".join(combined_parts)
+            has_secret = has_secret or isinstance(resolved, Secret)
+            combined_parts.append(str(reveal(resolved)))
+        combined = "".join(combined_parts)
+        result = Secret(combined) if has_secret else combined
+        return result
 
     def _split_interpolation(
         self, value: str, path: list[str]
@@ -411,7 +512,7 @@ class _InterpolationResolver:
                 if depth != 0:
                     raise InterpolationError(
                         "Unterminated interpolation.",
-                        file_path=self._file_path,
+                        file_path=self._source_for(path),
                         config_path=".".join(path),
                     )
                 else:
@@ -446,7 +547,7 @@ class _InterpolationResolver:
             if not ref_target:
                 raise InterpolationError(
                     "Empty ref target in '${ref:}'.",
-                    file_path=self._file_path,
+                    file_path=self._source_for(path),
                     config_path=".".join(path),
                 )
             return {"_ref": ref_target}
@@ -463,13 +564,20 @@ class _InterpolationResolver:
         if config_value is not _MISSING:
             return self._resolve_config_path(key, path)
         elif (env_value := os.environ.get(key)) is not None:
-            return env_value
+            result = Secret(_infer_scalar(env_value))
+            return result
         elif default is not None:
-            return self._interpolate_string(default, path)
+            resolved = self._interpolate_string(default, path)
+            result = (
+                _infer_scalar(resolved)
+                if isinstance(resolved, str) and "${" not in default
+                else resolved
+            )
+            return result
         else:
             raise InterpolationError(
                 f"Interpolation target '{key}' not found in config or environment.",
-                file_path=self._file_path,
+                file_path=self._source_for(path),
                 config_path=".".join(path),
             )
 
@@ -491,7 +599,7 @@ class _InterpolationResolver:
         elif dotted in self._visiting:
             raise CircularInterpolationError(
                 f"Circular interpolation detected for '{dotted}'.",
-                file_path=self._file_path,
+                file_path=self._source_for(path),
                 config_path=".".join(path),
             )
 
@@ -499,7 +607,7 @@ class _InterpolationResolver:
         if raw_value is _MISSING:
             raise InterpolationError(
                 f"Interpolation target '{dotted}' not found.",
-                file_path=self._file_path,
+                file_path=self._source_for(path),
                 config_path=".".join(path),
             )
         else:

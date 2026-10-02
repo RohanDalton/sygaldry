@@ -3,14 +3,13 @@ from __future__ import annotations
 __author__ = "Rohan B. Dalton"
 
 import json
-import os
 import re
 import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .artificery import Artificery
 from .codegen import SourceMapping, generate_check_source
@@ -86,12 +85,14 @@ def _run_and_parse(
     """
     Write source to a temp file, run the checker, and parse results.
     """
-    fd, tmp_path = tempfile.mkstemp(suffix=".py", prefix="_sygaldry_check_")
-    with os.fdopen(fd, "w") as fh:
-        fh.write(source)
-    result = _invoke_checker(checker, tmp_path)
-    os.unlink(tmp_path)
-    return _parse_output(checker, result, mappings)
+    with tempfile.TemporaryDirectory(prefix="_sygaldry_check_") as directory:
+        config_source_path = Path(directory) / "config.py"
+        with config_source_path.open("x", encoding="utf-8") as fh:
+            config_source_path.chmod(0o600)
+            fh.write(source)
+        result = _invoke_checker(checker, str(config_source_path))
+        errors = _parse_output(checker, result, mappings)
+    return errors
 
 
 def _invoke_checker(checker: str, filepath: str) -> subprocess.CompletedProcess:
@@ -225,3 +226,7 @@ def _extract_ty_line(lines: list[str], diag_idx: int) -> int | None:
         if match := _TY_LINE_PATTERN.match(lines[idx]):
             return int(match.group("line"))
     return None
+
+
+if __name__ == "__main__":
+    pass

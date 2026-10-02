@@ -3,7 +3,6 @@ from __future__ import annotations
 __author__ = "Rohan B. Dalton"
 
 import importlib
-from typing import Optional
 
 from .errors import ImportResolutionError
 
@@ -19,6 +18,8 @@ RESERVED_KEYS = frozenset(
         "_include",
         "_entries",
         "_call",
+        "_lifecycle",
+        "_secret",
     }
 )
 
@@ -44,7 +45,7 @@ def import_dotted_path(
     :rtype: object
     :raises ImportResolutionError: If the module or attribute cannot be imported.
     """
-    if not dotted_path or not isinstance(dotted_path, str):
+    if not isinstance(dotted_path, str) or not dotted_path:
         raise ImportResolutionError(
             "Dotted path must be a non-empty string.",
             file_path=file_path,
@@ -59,12 +60,31 @@ def import_dotted_path(
         candidate = ".".join(parts[:idx])
         try:
             module = importlib.import_module(candidate)
-        except Exception:
-            continue
+        except ModuleNotFoundError as exc:
+            if exc.name and (candidate == exc.name or candidate.startswith(exc.name + ".")):
+                continue
+            else:
+                raise ImportResolutionError(
+                    f"Importing '{candidate}' failed because a dependency is missing.",
+                    file_path=file_path,
+                    config_path=config_path,
+                ) from exc
+        except ImportError as exc:
+            raise ImportResolutionError(
+                f"Importing '{candidate}' failed.",
+                file_path=file_path,
+                config_path=config_path,
+            ) from exc
         else:
             module_path = candidate
             attributes = parts[idx:]
             break
+    else:
+        raise ImportResolutionError(
+            f"Failed to import module for dotted path '{dotted_path}'.",
+            file_path=file_path,
+            config_path=config_path,
+        )
 
     if module is None or module_path is None:
         raise ImportResolutionError(

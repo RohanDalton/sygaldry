@@ -20,8 +20,12 @@ Features
   ``_func`` mappings import callables.
 * **References** -- ``_ref`` wires components together by name or dotted
   attribute path.
-* **Instance caching** -- identical specs share instances; named
-  ``_instance`` tags give explicit control.
+* **Explicit sharing** -- nodes are independent by default; named
+  ``_instance`` tags share resources within a cache lifetime.
+* **Managed lifetimes** -- sync and async runtime scopes await factories and
+  close resources in dependency order.
+* **Strict validation** -- check signatures without constructing objects;
+  diagnose unknown arguments and protect secret values in displays.
 * **Safety** -- no ``eval``, no arbitrary code; imports are by dotted path
   only.
 

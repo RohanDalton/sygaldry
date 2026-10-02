@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+__author__ = "Rohan B. Dalton"
+
 import pytest
 from click.testing import CliRunner
 
@@ -458,6 +460,81 @@ def test_run_with_toml(tmp_path, runner):
     result = runner.invoke(cli, ["run", "-c", cfg, "greeter"])
     assert result.exit_code == 0
     assert "Hello, toml-world!" in result.output
+
+
+def test_validate_does_not_open_connections(tmp_path, runner, lifecycle_events):
+    """
+    Given: A config for a real resource protocol.
+    When:  Running validate.
+    Then:  No constructor or open hook is executed.
+    """
+    path = _write_cfg(
+        tmp_path, "resource.yaml", "resource:\n  _type: tests.components.AsyncResource\n"
+    )
+    actual = runner.invoke(cli, ["validate", "-c", path])
+    assert actual.exit_code == 0, actual.output
+    assert lifecycle_events == list()
+
+
+def test_run_owns_async_lifetime_and_selects_single_key(tmp_path, runner, lifecycle_events):
+    """
+    Given: An async callable resource and an unrelated broken import.
+    When:  Running only that resource through the CLI.
+    Then:  It opens, runs, closes, and the unrelated node is untouched.
+    """
+    path = _write_cfg(
+        tmp_path,
+        "resource.yaml",
+        "resource:\n  _type: tests.components.CallableResource\nother:\n  _type: no_such_module.Client\n",
+    )
+    actual = runner.invoke(cli, ["run", "-c", path, "resource"])
+    assert actual.exit_code == 0, actual.output
+    assert lifecycle_events == [
+        ("construct", "plain"),
+        ("open", "plain"),
+        ("call", "plain"),
+        ("close", "plain"),
+    ]
+
+
+def test_cli_strict_mode_rejects_unknown_constructor_keyword(
+    tmp_path, runner, lifecycle_events
+):
+    """
+    Given: A config with a misspelled keyword.
+    When:  Running validate with default options.
+    Then:  Strict validation reports the typo and constructs nothing.
+    """
+    path = _write_cfg(
+        tmp_path, "typo.yaml", "resource:\n  _type: tests.components.Plain\n  rpps: 5\n"
+    )
+    actual = runner.invoke(cli, ["validate", "-c", path])
+    assert actual.exit_code == 1
+    assert "rpps" in actual.output
+    assert lifecycle_events == list()
+
+
+def test_interactive_resources_close_when_session_exits(
+    tmp_path, cli_runner, mocker, lifecycle_events
+):
+    """
+    Given: An interactive session that resolves a managed resource.
+    When:  The REPL exits.
+    Then:  Its runtime closes the resource.
+    """
+    path = tmp_path / "interactive.yaml"
+    path.write_text("resource:\n  _type: tests.components.SyncResource\n", encoding="utf-8")
+
+    def session(*args, **kwargs):
+        namespace = kwargs.get("local") or kwargs["user_ns"]
+        resource = namespace["artificery"].resolve("resource")
+        assert resource.name == "plain"
+        assert lifecycle_events[-1] == ("open", "plain")
+
+    mocker.patch("sygaldry.cli.code.interact", side_effect=session)
+    result = cli_runner.invoke(cli, ["interactive", "-c", str(path)])
+    assert result.exit_code == 0, result.output
+    assert lifecycle_events[-1] == ("close", "plain")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,5 @@
+"""Internal helpers for parsing, merging, and interpolating configuration."""
+
 from __future__ import annotations
 
 __author__ = "Rohan B. Dalton"
@@ -73,21 +75,6 @@ def _maybe_download(path: str | Path) -> Path:
     finally:
         tmp.close()
     return Path(tmp.name)
-
-
-def load_config(path: str | Path) -> dict[str, Any]:
-    """
-    Load and interpolate a config file.
-
-    :param path: Path to a YAML or TOML config file, or an HTTP(S) URL.
-    :type path: str | pathlib.Path
-    :returns: Merged, interpolated configuration mapping.
-    :rtype: dict[str, Any]
-    """
-    local = _maybe_download(path)
-    visited: set[Path] = set()
-    data = _load_with_includes(local, ancestors=[], visited=visited)
-    return _interpolate_config(data, file_path=str(path))
 
 
 def _load_with_includes(

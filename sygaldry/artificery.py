@@ -10,6 +10,14 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .cache import Instances
+from .configuration import (
+    _MISSING,
+    _deep_merge,
+    _get_by_path,
+    _interpolate_config,
+    _load_with_includes,
+    _maybe_download,
+)
 from .errors import (
     CircularReferenceError,
     ConfigReferenceError,
@@ -17,15 +25,6 @@ from .errors import (
     ImportResolutionError,
     ResolutionError,
     ValidationError,
-)
-from .loader import (
-    _MISSING,
-    _deep_merge,
-    _get_by_path,
-    _interpolate_config,
-    _load_with_includes,
-    _maybe_download,
-    load_config,
 )
 from .types import RESERVED_KEYS, import_dotted_path
 
@@ -82,42 +81,6 @@ def _set_by_path(data: dict[str, Any], dotted_path: str, value: Any) -> None:
     current[segments[-1]] = value
 
 
-def load_config_file(path: str | Path) -> dict[str, Any]:
-    """
-    Load a config file without resolving components.
-
-    :param path: Path to a YAML or TOML config file, or an HTTP(S) URL.
-    :type path: str | pathlib.Path
-    :returns: Parsed and interpolated mapping.
-    :rtype: dict[str, Any]
-    """
-    return load_config(path)
-
-
-class ArtificeryLoader:
-    """
-    Lightweight loader wrapper for config files.
-    """
-
-    def __init__(self, path: str | Path) -> None:
-        """
-        Initialize the loader.
-
-        :param path: Path to a YAML or TOML config file, or an HTTP(S) URL.
-        :type path: str | pathlib.Path
-        """
-        self._path = path
-
-    def load(self) -> dict[str, Any]:
-        """
-        Load and return the config mapping.
-
-        :returns: Parsed and interpolated configuration mapping.
-        :rtype: dict[str, Any]
-        """
-        return load_config(self._path)
-
-
 def resolve_config(
     config: dict[str, Any],
     *,
@@ -163,7 +126,7 @@ class Artificery:
         """
         Initialize the Artificery.
 
-        :param paths: Config file paths to load and deep-merge in order.
+        :param paths: Config file paths or HTTP(S) URLs to load and deep-merge in order.
         :param config: Pre-loaded configuration mapping.
         :param source: Label for error messages (auto-derived from paths if omitted).
         :param overrides: Dotted-path overrides applied after merging, before interpolation.
@@ -202,9 +165,12 @@ class Artificery:
         :returns: Prepared configuration mapping.
         :rtype: dict[str, Any]
         """
-        if not self._prepared:
+        if self._prepared is None:
             self._prepared = self._prepare()
-        return self._prepared
+        else:
+            pass
+        prepared_config = self._prepared
+        return prepared_config
 
     @property
     def _source_label(self) -> str | None:

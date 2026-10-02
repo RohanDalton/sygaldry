@@ -14,12 +14,6 @@ Artificery module
 .. automodule:: sygaldry.artificery
    :members:
 
-Loader module
-=============
-
-.. automodule:: sygaldry.loader
-   :members:
-
 Cache module
 ============
 

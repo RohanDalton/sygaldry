@@ -3,8 +3,9 @@ __author__ = "Rohan B. Dalton"
 import pytest
 
 from sygaldry import Artificery, load
-from sygaldry.artificery import ArtificeryLoader, load_config_file
 from sygaldry.cache import Instances
+
+_CONFIG_CONTENT_CASES = {"empty": "", "populated": "host: original\n"}
 
 
 class Widget:
@@ -137,26 +138,25 @@ def test_artificery_resolves_refs_between_entries():
     assert resolved["a"].widget is resolved["w"]
 
 
-def test_artificery_loader_loads_config(tmp_path):
+def test_artificery_config_loads_mapping(tmp_path):
     """
     GIVEN: A YAML config file.
-    WHEN:  Loading via ArtificeryLoader.
+    WHEN:  Accessing Artificery.config.
     THEN:  The parsed and interpolated mapping is returned.
     """
-    cfg = tmp_path / "loader.yaml"
+    cfg = tmp_path / "config.yaml"
     cfg.write_text("service:\n  host: localhost\n  port: 8080\n", encoding="utf-8")
 
-    loader = ArtificeryLoader(cfg)
-    config = loader.load()
+    config = Artificery(cfg).config
 
     assert config["service"]["host"] == "localhost"
     assert config["service"]["port"] == 8080
 
 
-def test_load_config_file_returns_interpolated_mapping(tmp_path):
+def test_artificery_config_interpolates_without_instantiating_components(tmp_path):
     """
     GIVEN: A YAML config file with interpolation.
-    WHEN:  Loading via load_config_file.
+    WHEN:  Accessing Artificery.config.
     THEN:  Interpolation is applied but _type entries are not resolved.
     """
     cfg = tmp_path / "raw.yaml"
@@ -166,10 +166,67 @@ def test_load_config_file_returns_interpolated_mapping(tmp_path):
         encoding="utf-8",
     )
 
-    config = load_config_file(cfg)
+    config = Artificery(cfg).config
 
     assert config["url"] == "http://localhost:8080"
     assert config["svc"]["_type"] == "tests.test_artificery.Widget"
+
+
+def test_artificery_config_prepares_merged_files_before_resolution(tmp_path):
+    """
+    Given: Multiple files with includes, component specs, and interpolation.
+    When:  Accessing config with use mappings and overrides.
+    Then:  Files merge before uses, overrides, and interpolation are applied.
+    """
+    included_path = tmp_path / "included.yaml"
+    base_path = tmp_path / "base.yaml"
+    override_path = tmp_path / "override.yaml"
+    included_path.write_text("service:\n  timeout: 30\n", encoding="utf-8")
+    base_path.write_text(
+        "_include:\n  - included.yaml\n"
+        "service:\n  host: base\n  port: 8080\n"
+        "widget:\n  _type: tests.test_artificery.Widget\n  name: '${service.host}'\n"
+        "endpoint: '${service.host}:${service.port}'\n"
+        "copied_host: '${selected_host}'\n",
+        encoding="utf-8",
+    )
+    override_path.write_text("service:\n  host: production\n", encoding="utf-8")
+    expected = {
+        "service": {"timeout": 30, "host": "cli", "port": 8080},
+        "widget": {"_type": "tests.test_artificery.Widget", "name": "cli"},
+        "endpoint": "cli:8080",
+        "copied_host": "production",
+        "selected_host": "production",
+    }
+
+    actual = Artificery(
+        base_path,
+        override_path,
+        uses={"selected_host": "service.host"},
+        overrides={"service.host": "cli"},
+    ).config
+
+    assert actual == expected
+
+
+@pytest.mark.parametrize(
+    "config_content", _CONFIG_CONTENT_CASES.values(), ids=_CONFIG_CONTENT_CASES
+)
+def test_artificery_config_caches_prepared_mapping(tmp_path, config_content):
+    """
+    Given: A config file that has already been prepared, including an empty file.
+    When:  The source changes and config is accessed again.
+    Then:  The original prepared mapping is reused.
+    """
+    config_path = tmp_path / "cached.yaml"
+    config_path.write_text(config_content, encoding="utf-8")
+    artificery = Artificery(config_path)
+    expected = artificery.config
+    config_path.write_text("host: changed\n", encoding="utf-8")
+
+    actual = artificery.config
+
+    assert actual is expected
 
 
 def test_load_resolves_end_to_end(tmp_path):

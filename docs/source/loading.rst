@@ -2,6 +2,38 @@
 Loading
 =======
 
+Loading without instantiating components
+========================================
+
+Access ``Artificery.config`` to obtain the loaded, merged, and interpolated
+mapping. Component definitions remain dictionaries until you call
+``Artificery.resolve()``.
+
+.. code-block:: python
+
+   from sygaldry import Artificery
+
+   artificery = Artificery(
+       "base.yaml",
+       "prod.yaml",
+       overrides={"service.port": 8080},
+   )
+   config = artificery.config
+   graph = artificery.resolve()
+
+Config sources may be local YAML or TOML files or HTTP(S) URLs. Multiple
+sources merge in order, followed by ``uses`` mappings, ``overrides``, and
+interpolation. The prepared mapping is cached on the ``Artificery`` instance.
+
+Migrating from the previous loading API
+---------------------------------------
+
+``sygaldry.loader`` and the ``load_config_file`` and ``ArtificeryLoader``
+wrappers have been removed. Replace ``load_config(path)``,
+``load_config_file(path)``, or ``ArtificeryLoader(path).load()`` with
+``Artificery(path).config``. The implementation helpers in
+``sygaldry.configuration`` are internal; use ``Artificery`` for loading.
+
 Includes
 ========
 

@@ -1,21 +1,19 @@
 __author__ = "Rohan B. Dalton"
 
-import http.server
-import threading
 from urllib.error import URLError
 
 import pytest
 
+from sygaldry import Artificery
 from sygaldry.errors import (
     CircularIncludeError,
     CircularInterpolationError,
     InterpolationError,
     ParseError,
 )
-from sygaldry.loader import load_config
 
 
-def test_load_config_yaml_with_include_and_merge(tmp_path):
+def test_artificery_config_yaml_with_include_and_merge(tmp_path):
     """
     GIVEN: A YAML file that includes another.
     WHEN:  Loading the config.
@@ -33,13 +31,13 @@ def test_load_config_yaml_with_include_and_merge(tmp_path):
         encoding="utf-8",
     )
 
-    config = load_config(child)
+    config = Artificery(child).config
 
     assert config["service"]["host"] == "localhost"
     assert config["service"]["port"] == 6543
 
 
-def test_load_config_toml_with_include_and_merge(tmp_path):
+def test_artificery_config_toml_with_include_and_merge(tmp_path):
     """
     GIVEN: A TOML file that includes another.
     WHEN:  Loading the config.
@@ -57,7 +55,7 @@ def test_load_config_toml_with_include_and_merge(tmp_path):
         encoding="utf-8",
     )
 
-    config = load_config(child)
+    config = Artificery(child).config
 
     assert config["service"]["name"] == "core"
     assert config["service"]["port"] == 9001
@@ -77,7 +75,7 @@ def test_interpolation_env_and_config_paths(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("DB_HOST", "db.example.com")
 
-    config = load_config(cfg)
+    config = Artificery(cfg).config
 
     assert config["db"]["port"] == 5432
     assert config["url"] == "postgres://db.example.com:5432/app"
@@ -92,7 +90,7 @@ def test_interpolation_escape(tmp_path):
     cfg = tmp_path / "config.yaml"
     cfg.write_text('value: "$${NOT_INTERP}"\n', encoding="utf-8")
 
-    config = load_config(cfg)
+    config = Artificery(cfg).config
 
     assert config["value"] == "${NOT_INTERP}"
 
@@ -106,7 +104,7 @@ def test_interpolation_nested_default(tmp_path):
     cfg = tmp_path / "config.yaml"
     cfg.write_text('db:\n  host: localhost\nurl: "${DB_HOST:-${db.host}}"\n', encoding="utf-8")
 
-    config = load_config(cfg)
+    config = Artificery(cfg).config
 
     assert config["url"] == "localhost"
 
@@ -125,7 +123,7 @@ def test_interpolation_nested_tokens_inside_string(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("DB_HOST", "db.example.com")
 
-    config = load_config(cfg)
+    config = Artificery(cfg).config
 
     assert config["url"] == "postgres://db.example.com:5432/app"
 
@@ -140,7 +138,7 @@ def test_interpolation_missing_target_raises(tmp_path):
     cfg.write_text('value: "${missing.path}"\n', encoding="utf-8")
 
     with pytest.raises(InterpolationError):
-        load_config(cfg)
+        config = Artificery(cfg).config
 
 
 def test_circular_interpolation_detection(tmp_path):
@@ -153,7 +151,7 @@ def test_circular_interpolation_detection(tmp_path):
     cfg.write_text('a: "${b}"\nb: "${a}"\n', encoding="utf-8")
 
     with pytest.raises(CircularInterpolationError):
-        load_config(cfg)
+        config = Artificery(cfg).config
 
 
 def test_diamond_include_does_not_raise(tmp_path):
@@ -172,7 +170,7 @@ def test_diamond_include_does_not_raise(tmp_path):
     c.write_text("_include:\n  - d.yaml\nc_key: from_c\n", encoding="utf-8")
     a.write_text("_include:\n  - b.yaml\n  - c.yaml\na_key: from_a\n", encoding="utf-8")
 
-    config = load_config(a)
+    config = Artificery(a).config
 
     assert config["shared"]["value"] == 42
     assert config["b_key"] == "from_b"
@@ -190,7 +188,7 @@ def test_interpolation_config_path_takes_priority_over_env(tmp_path, monkeypatch
     cfg.write_text('host: config_host\nurl: "${host}"\n', encoding="utf-8")
     monkeypatch.setenv("host", "env_host")
 
-    config = load_config(cfg)
+    config = Artificery(cfg).config
 
     assert config["url"] == "config_host"
 
@@ -205,7 +203,7 @@ def test_interpolation_falls_back_to_env_when_not_in_config(tmp_path, monkeypatc
     cfg.write_text('url: "${SYGALDRY_TEST_VAR}"\n', encoding="utf-8")
     monkeypatch.setenv("SYGALDRY_TEST_VAR", "from_env")
 
-    config = load_config(cfg)
+    config = Artificery(cfg).config
 
     assert config["url"] == "from_env"
 
@@ -224,7 +222,7 @@ def test_dotted_keys_expand_to_nested_dicts(tmp_path):
         encoding="utf-8",
     )
 
-    config = load_config(cfg)
+    config = Artificery(cfg).config
 
     assert config["ftp_client"]["host"] == "foo.com"
     assert config["ftp_client"]["port"] == 2222
@@ -247,7 +245,7 @@ def test_dotted_keys_with_include(tmp_path):
         encoding="utf-8",
     )
 
-    config = load_config(child)
+    config = Artificery(child).config
 
     assert config["ftp_client"]["host"] == "foo.com"
     assert config["ftp_client"]["port"] == 22
@@ -267,65 +265,51 @@ def test_circular_include_detection(tmp_path):
     b.write_text("_include:\n  - a.yaml\nvalue: 2\n", encoding="utf-8")
 
     with pytest.raises(CircularIncludeError):
-        load_config(a)
+        config = Artificery(a).config
 
 
-@pytest.fixture()
-def _serve_dir(tmp_path):
-    """Serve *tmp_path* over HTTP on a random port and yield the base URL."""
-    handler = lambda *a, **kw: http.server.SimpleHTTPRequestHandler(
-        *a, directory=str(tmp_path), **kw
-    )
-    server = http.server.HTTPServer(("127.0.0.1", 0), handler)
-    port = server.server_address[1]
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    yield f"http://127.0.0.1:{port}"
-    server.shutdown()
-
-
-def test_load_config_from_http_url(tmp_path, _serve_dir):
+def test_artificery_config_from_http_url(tmp_path, served_config_directory):
     """
     GIVEN: A YAML config served over HTTP.
-    WHEN:  load_config is called with the URL.
+    WHEN:  Artificery.config is accessed with the URL.
     THEN:  The config is loaded correctly.
     """
     (tmp_path / "remote.yaml").write_text(
         "service:\n  host: remote-host\n  port: 9090\n", encoding="utf-8"
     )
-    config = load_config(f"{_serve_dir}/remote.yaml")
+    config = Artificery(f"{served_config_directory}/remote.yaml").config
     assert config["service"]["host"] == "remote-host"
     assert config["service"]["port"] == 9090
 
 
-def test_load_config_from_http_url_toml(tmp_path, _serve_dir):
+def test_artificery_config_from_http_url_toml(tmp_path, served_config_directory):
     """
     GIVEN: A TOML config served over HTTP.
-    WHEN:  load_config is called with the URL.
+    WHEN:  Artificery.config is accessed with the URL.
     THEN:  The config is loaded correctly.
     """
     (tmp_path / "remote.toml").write_text(
         '[service]\nhost = "toml-host"\nport = 8080\n', encoding="utf-8"
     )
-    config = load_config(f"{_serve_dir}/remote.toml")
+    config = Artificery(f"{served_config_directory}/remote.toml").config
     assert config["service"]["host"] == "toml-host"
     assert config["service"]["port"] == 8080
 
 
-def test_http_config_with_absolute_url_include(tmp_path, _serve_dir):
+def test_http_config_with_absolute_url_include(tmp_path, served_config_directory):
     """
     GIVEN: A remote YAML config that includes another remote file via absolute URL.
-    WHEN:  load_config is called with the URL.
+    WHEN:  Artificery.config is accessed with the URL.
     THEN:  Both files are merged correctly.
     """
     (tmp_path / "base.yaml").write_text(
         "db:\n  host: db-host\n  port: 5432\n", encoding="utf-8"
     )
     (tmp_path / "app.yaml").write_text(
-        f'_include:\n  - "{_serve_dir}/base.yaml"\ndb:\n  port: 6543\n',
+        f'_include:\n  - "{served_config_directory}/base.yaml"\ndb:\n  port: 6543\n',
         encoding="utf-8",
     )
-    config = load_config(f"{_serve_dir}/app.yaml")
+    config = Artificery(f"{served_config_directory}/app.yaml").config
     assert config["db"]["host"] == "db-host"
     assert config["db"]["port"] == 6543
 
@@ -333,24 +317,24 @@ def test_http_config_with_absolute_url_include(tmp_path, _serve_dir):
 def test_http_config_download_failure_raises():
     """
     GIVEN: A URL that cannot be reached.
-    WHEN:  load_config is called.
-    THEN:  A ParseError is raised.
+    WHEN:  Artificery.config is accessed.
+    THEN:  The download error is propagated.
     """
     with pytest.raises(URLError, match="Connection refused"):
-        load_config("http://127.0.0.1:1/nonexistent.yaml")
+        config = Artificery("http://127.0.0.1:1/nonexistent.yaml").config
 
 
-def test_http_config_with_interpolation(tmp_path, _serve_dir):
+def test_http_config_with_interpolation(tmp_path, served_config_directory):
     """
     GIVEN: A remote config with interpolation.
-    WHEN:  load_config is called.
+    WHEN:  Artificery.config is accessed.
     THEN:  Interpolation resolves correctly.
     """
     (tmp_path / "interp.yaml").write_text(
         'db:\n  host: myhost\n  port: 5432\nurl: "postgres://${db.host}:${db.port}/app"\n',
         encoding="utf-8",
     )
-    config = load_config(f"{_serve_dir}/interp.yaml")
+    config = Artificery(f"{served_config_directory}/interp.yaml").config
     assert config["url"] == "postgres://myhost:5432/app"
 
 
@@ -363,7 +347,7 @@ def test_ref_placeholder_produces_ref_dict(tmp_path):
     cfg = tmp_path / "cfg.yaml"
     cfg.write_text('db:\n  host: localhost\nconn: "${ref:db}"\n', encoding="utf-8")
 
-    config = load_config(cfg)
+    config = Artificery(cfg).config
 
     assert config["conn"] == {"_ref": "db"}
 
@@ -377,7 +361,7 @@ def test_ref_placeholder_with_dotted_path(tmp_path):
     cfg = tmp_path / "cfg.yaml"
     cfg.write_text('db:\n  pool:\n    size: 5\nval: "${ref:db.pool}"\n', encoding="utf-8")
 
-    config = load_config(cfg)
+    config = Artificery(cfg).config
 
     assert config["val"] == {"_ref": "db.pool"}
 
@@ -392,7 +376,7 @@ def test_ref_placeholder_embedded_in_string_raises(tmp_path):
     cfg.write_text('db:\n  host: localhost\nurl: "foo ${ref:db} bar"\n', encoding="utf-8")
 
     with pytest.raises(InterpolationError, match="cannot be embedded"):
-        load_config(cfg)
+        config = Artificery(cfg).config
 
 
 def test_ref_placeholder_empty_target_raises(tmp_path):
@@ -405,7 +389,7 @@ def test_ref_placeholder_empty_target_raises(tmp_path):
     cfg.write_text('val: "${ref:}"\n', encoding="utf-8")
 
     with pytest.raises(InterpolationError, match="Empty ref target"):
-        load_config(cfg)
+        config = Artificery(cfg).config
 
 
 if __name__ == "__main__":

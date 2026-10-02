@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from .artificery import Artificery
 from .codegen import SourceMapping, generate_check_source
-from .loader import load_config
 
 _MYPY_PATTERN = re.compile(
     r"^.+?:(?P<line>\d+):\d+:\s*(?P<severity>error|warning|note):\s*(?P<message>.+?)(?:\s+\[.+\])?$"
@@ -46,9 +46,9 @@ def check(
     Either *path* or *config* must be provided.  When *config* is given
     the config dict is used directly (useful from the CLI after loading
     and applying overrides).  When *path* is given, the file is loaded
-    via :func:`load_config`.
+    via :attr:`Artificery.config` without instantiating components.
 
-    :param path: Path to a YAML/TOML config file.
+    :param path: Path to a YAML/TOML config file or an HTTP(S) URL.
     :param type_checker: Which checker to run (``ty``, ``basedpyright``,
         ``pyright``, or ``mypy``).  Auto-detected when *None*.
     :param config: Pre-loaded config dict.
@@ -58,7 +58,7 @@ def check(
         if path is None:
             raise ValueError("Either path or config must be provided.")
         else:
-            config = load_config(Path(path))
+            config = Artificery(path).config
 
     source, mappings = generate_check_source(config)
 

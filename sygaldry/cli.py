@@ -17,8 +17,8 @@ from rich.syntax import Syntax
 from .artificery import Artificery
 from .checker import check as run_check
 from .codegen import generate_check_source
+from .configuration import _infer_scalar, _is_url
 from .errors import CLIError, SygaldryError
-from .loader import _infer_scalar, _is_url
 
 _console = Console(stderr=True)
 

@@ -268,7 +268,7 @@ class ConfigAnalyzer:
         )
         self._components.append(component)
 
-    def _process_arg_value(self, value: Any, config_path: str, deps: list[str]) -> Any:
+    def _process_arg_value(self, value: Any, config_path: str, deps: list[str]) -> Any:  # noqa: PLR0911
         """
         Process a value that appears as an argument to a _type constructor.
 
@@ -315,7 +315,7 @@ class ConfigAnalyzer:
             return processed
 
     def _analyze_entries(
-        self, entries: Any, config_path: str, deps: list[str]
+        self, entries: list[Any], config_path: str, deps: list[str]
     ) -> EntriesExpression:
         """
         Analyze an _entries list.
@@ -482,10 +482,10 @@ class CodeGenerator:
         entry = self._entry_map.get(target)
         if not isinstance(entry, ComponentEntry):
             return False
-        target = self._constructor_targets.get(entry.import_path)
-        if target is None:
+        constructor = self._constructor_targets.get(entry.import_path)
+        if constructor is None:
             try:
-                target = import_dotted_path(entry.import_path)
+                constructor = import_dotted_path(entry.import_path)
             except ImportResolutionError as exc:
                 if exc.__cause__ is None or isinstance(exc.__cause__, AttributeError):
                     result = False
@@ -494,7 +494,7 @@ class CodeGenerator:
                     raise
         else:
             pass
-        func = getattr(target, method or "__call__", None)
+        func = getattr(constructor, method or "__call__", None)
         result = inspect.iscoroutinefunction(func)
         return result
 
@@ -646,7 +646,7 @@ class CodeGenerator:
                 current = None
         return expression
 
-    def _value_to_source(self, value: Any) -> str:
+    def _value_to_source(self, value: Any) -> str:  # noqa: PLR0911
         """
         Convert a config value to its Python source representation.
         """
@@ -679,7 +679,7 @@ class CodeGenerator:
             return "..."
 
     @staticmethod
-    def _python_type_name(value: Any) -> str:
+    def _python_type_name(value: Any) -> str:  # noqa: PLR0911
         """
         Get a type annotation name for a plain value.
         """

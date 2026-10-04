@@ -108,7 +108,7 @@ def _invoke_checker(checker: str, filepath: str) -> subprocess.CompletedProcess:
     else:
         raise ValueError(f"Unsupported type checker: {checker}")
 
-    return subprocess.run(
+    return subprocess.run(  # noqa: PLW1510, S603
         cmd,
         capture_output=True,
         text=True,

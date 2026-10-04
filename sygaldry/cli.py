@@ -62,7 +62,7 @@ def _parse_use_option(raw: str) -> tuple[str, str]:
     return target, source
 
 
-def _build_artificery(
+def _build_artificery(  # noqa: PLR0913
     config_paths: tuple[Path, ...],
     set_overrides: tuple[str, ...],
     use_overrides: tuple[str, ...],
@@ -304,7 +304,7 @@ def cli():
 @click.option("-v", "--verbose", is_flag=True, help="Show full tracebacks on error.")
 @click.option("-q", "--quiet", is_flag=True, help="Suppress non-error output.")
 @click.argument("method_args", nargs=-1, type=click.UNPROCESSED)
-def run(
+def run(  # noqa: PLR0913
     config_paths: tuple[Path, ...],
     set_overrides: tuple[str, ...],
     use_overrides: tuple[str, ...],
@@ -402,7 +402,7 @@ def run(
     show_default=True,
     help="Maximum line length for generated Python code.",
 )
-def show(
+def show(  # noqa: PLR0912, PLR0913
     config_paths: tuple[Path, ...],
     set_overrides: tuple[str, ...],
     use_overrides: tuple[str, ...],
@@ -523,7 +523,7 @@ def validate(
     help="Type checker to use (auto-detected if omitted).",
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show full tracebacks on error.")
-def check(
+def check(  # noqa: PLR0913
     config_paths: tuple[Path, ...],
     set_overrides: tuple[str, ...],
     use_overrides: tuple[str, ...],
@@ -605,7 +605,8 @@ def interactive(
     )
 
     try:
-        from IPython import start_ipython
+        # IPython is optional; fall back to the standard-library REPL when absent.
+        from IPython import start_ipython  # ty: ignore[unresolved-import]  # noqa: PLC0415
     except ModuleNotFoundError as error:
         if error.name != "IPython":
             raise

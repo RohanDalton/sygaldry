@@ -163,7 +163,7 @@ class Artificery:
         self._overrides = overrides or dict()
         self._uses = uses or dict()
         self._owns_cache = transient or cache is None
-        self._cache = Instances() if self._owns_cache else cache
+        self._cache: Instances = Instances() if transient or cache is None else cache
         self._strict = strict
         self._prepared: dict[str, Any] | None = None
         self._sources: dict[tuple[str, ...], str] = dict()
@@ -837,7 +837,7 @@ class Artificery:
                     if instance is not None
                     else _NOT_FOUND
                 )
-                if existing is not _NOT_FOUND:
+                if instance is not None and existing is not _NOT_FOUND:
                     cached_owner = self._cache.owner(type_path, instance)
                     if cached_owner is not None:
                         cached_owner._bind_resource_loop()

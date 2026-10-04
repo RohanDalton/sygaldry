@@ -20,7 +20,7 @@ from .errors import ConfigConflictError, LifecycleError
 _NOT_FOUND = object()
 
 
-def _normalize_for_hash(value: Any, *, _memo: dict[int, str] | None = None) -> Any:
+def _normalize_for_hash(value: Any, *, _memo: dict[int, str] | None = None) -> Any:  # noqa: PLR0911
     """
     Normalize values into JSON-serializable structures for hashing.
 
@@ -266,7 +266,7 @@ class Instances:
             pass
         return entry.value
 
-    def set(
+    def set(  # noqa: PLR0913
         self,
         type_path: str,
         instance: str | None,
@@ -355,7 +355,7 @@ class Instances:
         owner = entry.owner if entry is not None else None
         return owner
 
-    def get_or_create(
+    def get_or_create(  # noqa: PLR0913
         self,
         type_path: str,
         instance: str | None,

@@ -23,9 +23,9 @@ from .errors import (
 from .secrets import Secret, reveal
 
 try:
-    import tomllib  # type: ignore
+    import tomllib
 except ImportError:  # pragma: no cover - fallback only
-    import tomli as tomllib  # type: ignore
+    import tomli as tomllib
 
 _MISSING = object()
 
@@ -104,14 +104,13 @@ def _maybe_download(path: str | Path) -> Path:
     dot = clean.rfind(".")
     suffix = clean[dot:] if dot != -1 else ""
 
-    with urllib.request.urlopen(url) as response:
+    # Fuck off Ruff. Be better.
+    with urllib.request.urlopen(url) as response:  # noqa: S310
         content = response.read()
 
-    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-    try:
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(content)
-    finally:
-        tmp.close()
+
     return Path(tmp.name)
 
 

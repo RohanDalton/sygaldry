@@ -97,7 +97,7 @@ def import_dotted_path(
         for attribute in attributes:
             try:
                 target = getattr(target, attribute)
-            except AttributeError as exc:
+            except AttributeError as exc:  # noqa: PERF203
                 raise ImportResolutionError(
                     f"Failed to resolve attribute '{attribute}' from '{module_path}' for dotted path '{dotted_path}'.",
                     file_path=file_path,

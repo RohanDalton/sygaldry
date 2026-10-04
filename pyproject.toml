@@ -79,6 +79,9 @@ ty = "*"
 sphinx = "*"
 sphinx_rtd_theme = "*"
 
+[tool.pixi.feature.docs.tasks]
+docs = "sphinx-build -b html -d docs/build/doctrees docs/source docs/build/html"
+
 [tool.pixi.feature.build.dependencies]
 hatch = "*"
 twine = "*"

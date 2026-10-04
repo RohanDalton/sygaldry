@@ -1,0 +1,93 @@
+name: Docs
+
+# Builds the docs for a release tag and uploads them to doc-server, which serves them at
+# https://sygaldry.art/docs/<version>/ and moves /docs/latest/ to the newest stable release.
+#
+# Needs secret DOCS_SSH_KEY and variables DOCS_HOST and DOCS_KNOWN_HOSTS; see the
+# doc-server README.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build and deploy, e.g. v0.2.0"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        run: |
+          if [[ ! ${TAG} =~ ^v[0-9][0-9A-Za-z.]*$ ]]; then
+            echo "::error::'${TAG}' is not a release tag"
+            exit 1
+          fi
+          if ! git rev-parse --verify --quiet "refs/tags/${TAG}^{commit}" > /dev/null; then
+            echo "::error::Tag ${TAG} does not exist"
+            exit 1
+          fi
+          echo "DOCS_VERSION=${TAG#v}" >> "${GITHUB_ENV}"
+
+      - name: Check tag matches package version
+        if: github.event_name == 'push'
+        run: |
+          package_version="$(python3 -c 'import runpy; print(runpy.run_path("sygaldry/__version__.py")["__version__"])')"
+          if [[ ${package_version} != "${DOCS_VERSION}" ]]; then
+            echo "::error::Tag ${TAG} does not match sygaldry/__version__.py (${package_version})"
+            exit 1
+          fi
+
+      # Old tags predate the version picker and some lack a usable docs environment, so take
+      # only their pages and package source and build them with the current configuration.
+      - name: Use pages and source from the tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git restore --source="${TAG}" --worktree -- docs/source sygaldry
+          git restore --source=HEAD --worktree -- docs/source/conf.py docs/source/_templates
+          # v0.2.0 was tagged without the __version__.py its __init__.py imports.
+          if [[ ! -f sygaldry/__version__.py ]]; then
+            printf '__version__ = "%s"\n' "${DOCS_VERSION}" > sygaldry/__version__.py
+          fi
+
+      - uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          environments: dev
+          cache: true
+
+      - name: Build
+        run: pixi run -e dev docs
+
+      - name: Configure SSH
+        env:
+          DOCS_SSH_KEY: ${{ secrets.DOCS_SSH_KEY }}
+          DOCS_KNOWN_HOSTS: ${{ vars.DOCS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${DOCS_SSH_KEY}" > ~/.ssh/docs_deploy
+          chmod 600 ~/.ssh/docs_deploy
+          printf '%s\n' "${DOCS_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+
+      # The server-side key is bound to this project, so the command is just the version.
+      - name: Deploy
+        env:
+          DOCS_HOST: ${{ vars.DOCS_HOST }}
+        run: |
+          tar -czf - -C docs/build/html . \
+            | ssh -i ~/.ssh/docs_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+                "deploy@${DOCS_HOST}" upload "${DOCS_VERSION}"

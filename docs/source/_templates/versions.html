@@ -1,0 +1,64 @@
+{#
+  Version picker for docs served by doc-server, which keeps versions.json one level above
+  each build. Reading it at page load means old builds also list versions released after
+  them. It stays hidden when versions.json is missing, e.g. for local builds.
+#}
+<div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="{{ _('Versions') }}" style="display: none">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    <span class="fa fa-book"> {{ project }}</span>
+    v: <span class="docs-current-version">{{ release }}</span>
+    <span class="fa fa-caret-down"></span>
+  </span>
+  <div class="rst-other-versions">
+    <dl class="docs-version-list">
+      <dt>{{ _('Versions') }}</dt>
+    </dl>
+  </div>
+</div>
+<script>
+  (() => {
+    const picker = document.currentScript.previousElementSibling;
+    const release = {{ release|tojson }};
+    const versionRoot = new URL({{ content_root|tojson }}, window.location.href);
+    const docsRoot = new URL("../", versionRoot);
+    const currentVersion = versionRoot.pathname.split("/").at(-2);
+    const pagePath = window.location.pathname.slice(versionRoot.pathname.length);
+
+    // Pages get added and removed between releases, so fall back to the version's front
+    // page rather than sending the reader to a 404.
+    async function switchVersion(event, version) {
+      event.preventDefault();
+      const target = event.currentTarget.href;
+      const response = await fetch(target, { method: "HEAD" }).catch(() => null);
+      window.location.href = response?.ok ? target : new URL(`${version}/`, docsRoot).href;
+    }
+
+    function versionEntry(version) {
+      const link = document.createElement("a");
+      link.textContent = version;
+      link.href = new URL(`${version}/${pagePath}`, docsRoot).href;
+      link.addEventListener("click", (event) => switchVersion(event, version));
+      const entry = document.createElement("dd");
+      if (version === currentVersion) {
+        const strong = document.createElement("strong");
+        strong.append(link);
+        entry.append(strong);
+      } else {
+        entry.append(link);
+      }
+      return entry;
+    }
+
+    fetch(new URL("versions.json", docsRoot))
+      .then((response) => (response.ok ? response.json() : Promise.reject(response)))
+      .then((index) => {
+        const versions = index.latest ? ["latest", ...index.versions] : index.versions;
+        picker.querySelector(".docs-version-list").append(...versions.map(versionEntry));
+        if (currentVersion === "latest") {
+          picker.querySelector(".docs-current-version").textContent = `latest (${release})`;
+        }
+        picker.style.display = "";
+      })
+      .catch(() => {});
+  })();
+</script>

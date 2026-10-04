@@ -4,8 +4,6 @@
 # list see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
-# -- Path setup --------------------------------------------------------------
-
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
@@ -17,17 +15,20 @@ import sys
 sys.path.insert(0, os.path.abspath("../.."))
 
 
-
-# -- Project information -----------------------------------------------------
-
-first_year   = 2021
+first_year = 2021
 this_year = dt.date.today().year
 project = "Sygaldry"
 copyright = f"{first_year}-{this_year}, Rohan B. Dalton"
 author = "Rohan B. Dalton"
 
+# CI sets DOCS_VERSION from the git tag, which is authoritative: some old tags carry a
+# stale sygaldry/__version__.py.
+if not (release := os.environ.get("DOCS_VERSION")):
+    from sygaldry.__version__ import __version__ as release
+else:
+    pass
+version = release
 
-# -- General configuration ---------------------------------------------------
 
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
@@ -50,17 +51,18 @@ templates_path = ["_templates"]
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = []
-
-
-# -- Options for HTML output -------------------------------------------------
+exclude_patterns = list()
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
 html_theme = "sphinx_rtd_theme"
 
+# Every version's pages declare the latest/ copy as canonical, so search engines index one
+# copy of each page rather than one per release.
+html_baseurl = "https://sygaldry.art/docs/latest/"
+
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = []
+html_static_path = list()
